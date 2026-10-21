@@ -30,15 +30,15 @@ abstract class ScreenModel:ViewModel() {
     private val _state=MutableStateFlow(CaptureState(url=saved["url"] ?: ""))
     val state=_state.asStateFlow()
     private var fetch:Job?=null
-    init {if(_state.value.url.isNotBlank())input(_state.value.url)}
-    fun input(url:String,immediate:Boolean=false){saved["url"]=url;fetch?.cancel();_state.value=CaptureState(url=url);if(url.isBlank())return
+    init {work{val p=prefs.flow.first();if(_state.value.url.isBlank())_state.value=_state.value.copy(height=p.defaultMaxQuality)};if(_state.value.url.isNotBlank())input(_state.value.url)}
+    fun input(url:String,immediate:Boolean=false){saved["url"]=url;fetch?.cancel();_state.value=CaptureState(url=url,height=_state.value.height,audioOnly=_state.value.audioOnly);if(url.isBlank())return
         fetch=work {
             if(!immediate)delay(400)
             if(UrlParser.parse(url)==null){_state.value=_state.value.copy(error="URL");return@work}
             _state.value=_state.value.copy(loading=true)
             try {when(val resolved=backend.resolve(url)) {
-                is ResolvedLink.Video->{val p=prefs.flow.first();val remembered=dao.channelLanguage(resolved.details.channelId);val selected=AudioTrackSelector.select(resolved.details.tracks,p.preferredAudioLanguage,remembered,p.autoPickDubbed,p.askWhenAlternatives);val quality=StreamPlanner.default(StreamPlanner.options(resolved.details,selected.track),p.defaultMaxQuality);_state.value=_state.value.copy(loading=false,result=resolved.details,trackId=selected.track?.id,height=quality?.height ?: 0,prompt=selected.prompt)}
-                is ResolvedLink.Playlist->_state.value=_state.value.copy(loading=false,playlist=resolved,selected=resolved.entries.map{it.ytId}.toSet(),height=prefs.flow.first().defaultMaxQuality)
+                is ResolvedLink.Video->{val p=prefs.flow.first();val remembered=dao.channelLanguage(resolved.details.channelId);val selected=AudioTrackSelector.select(resolved.details.tracks,p.preferredAudioLanguage,remembered,p.autoPickDubbed,p.askWhenAlternatives);_state.value=_state.value.copy(loading=false,result=resolved.details,trackId=selected.track?.id,prompt=selected.prompt)}
+                is ResolvedLink.Playlist->_state.value=_state.value.copy(loading=false,playlist=resolved,selected=resolved.entries.map{it.ytId}.toSet())
             }}catch(e:CancellationException){throw e}catch(e:Exception){_state.value=_state.value.copy(loading=false,error=Errors.code(e))}
         }
     }
@@ -62,19 +62,23 @@ abstract class ScreenModel:ViewModel() {
         }finally{_state.value=_state.value.copy(loadingMore=false)}
     }
     fun enqueue()=work {
-        val state=_state.value;_state.value=state.copy(busy=true)
+        val state=_state.value;if(state.busy)return@work;_state.value=state.copy(busy=true)
         try {
-            val p=prefs.flow.first()
             if(state.playlist!=null){
                 val failed=mutableSetOf<String>()
                 for(entry in state.playlist.entries.filter{it.ytId in state.selected}){
-                    try{val d=backend.details(entry.ytId);val t=AudioTrackSelector.select(d.tracks,p.preferredAudioLanguage,dao.channelLanguage(d.channelId),p.autoPickDubbed,p.askWhenAlternatives,batch=true).track;val q=StreamPlanner.default(StreamPlanner.options(d,t,state.audioOnly),state.height) ?: throw IllegalStateException("No compatible stream");downloads.enqueue(d,t,q,state.audioOnly)}
+                    try{downloads.enqueue(entry.ytId,state.height,state.audioOnly,title=entry.title,channel=entry.channel,thumbnail=entry.thumbnail)}
                     catch(e:CancellationException){throw e}catch(_:Exception){failed.add(entry.ytId)}
                 }
                 if(failed.isNotEmpty()){_state.value=_state.value.copy(selected=failed);effects.send(R.string.batch_partial);return@work}
             }
-            else {val d=state.result ?: return@work;val t=d.tracks.firstOrNull{it.id==state.trackId};val options=StreamPlanner.options(d,t,state.audioOnly);val q=options.firstOrNull{it.height==state.height} ?: options.lastOrNull() ?: return@work;if(state.remember && t!=null)dao.remember(ChannelAudioPref(d.channelId,t.locale));downloads.enqueue(d,t,q,state.audioOnly)}
-            saved["url"]="";_state.value=CaptureState();effects.send(R.string.added_queue)
+            else {
+                val link=UrlParser.parse(state.url) as? YoutubeLink.Video ?: return@work
+                val d=state.result;val t=d?.tracks?.firstOrNull{it.id==state.trackId}
+                if(state.remember && t!=null)dao.remember(ChannelAudioPref(d.channelId,t.locale))
+                downloads.enqueue(link.id,state.height,state.audioOnly,d,state.trackId)
+            }
+            fetch?.cancel();saved["url"]="";_state.value=CaptureState(height=state.height,audioOnly=state.audioOnly);effects.send(R.string.added_queue)
         }finally{_state.value=_state.value.copy(busy=false)}
     }
 }

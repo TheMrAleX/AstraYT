@@ -56,7 +56,7 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
     val unknownLanguage=stringResource(R.string.unknown_language)
     val storagePermission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){granted->if(granted)model.enqueue()}
     fun enqueue(){if(Build.VERSION.SDK_INT<=28 && ContextCompat.checkSelfPermission(context,Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED)storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)else model.enqueue()}
-    val details=state.result;val track=details?.tracks?.firstOrNull{it.id==state.trackId};val choices=details?.let{StreamPlanner.options(it,track,state.audioOnly)}.orEmpty();val selected=choices.firstOrNull{it.height==state.height} ?: choices.lastOrNull()
+    val details=state.result;val track=details?.tracks?.firstOrNull{it.id==state.trackId};val choices=details?.let{StreamPlanner.options(it,track,state.audioOnly)}.orEmpty();val selected=StreamPlanner.default(choices,state.height);val videoLink=UrlParser.parse(state.url) is YoutubeLink.Video
     Column(Modifier.fillMaxSize().padding(horizontal=16.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(16.dp)) {
             Text(stringResource(R.string.app_name),style=SingularityTheme.type.headline.copy(brush=c.linear),modifier=Modifier.padding(vertical=12.dp))
@@ -69,24 +69,29 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
             if(state.loading){Skeleton(Modifier.fillMaxWidth().aspectRatio(16f/9));Skeleton(Modifier.fillMaxWidth().height(64.dp))}
             details?.let { d->
                 MetadataCard(d.title,d.channelName+" · "+stringResource(R.string.views_text,Formatters.views(d.viewCount)),d.thumbnail,Formatters.duration(d.durationMs))
+            }
+            if(videoLink) {
                 GlassCard {
                     Text(stringResource(R.string.options),color=c.text,style=SingularityTheme.type.title)
                     SegmentedToggle(listOf(stringResource(R.string.video),stringResource(R.string.audio)),if(state.audioOnly)1 else 0,{model.kind(it==1)})
                     if(state.audioOnly)Tag(stringResource(R.string.best_audio)) else {
                         SectionHeader(stringResource(R.string.quality))
-                        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){choices.forEach{q->QualityChip(q.label,if(q.estimatedBytes>0)"≈ ${Formatters.bytes(q.estimatedBytes)}"else stringResource(R.string.unknown_size),selected==q,{model.height(q.height)})}}
+                        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){StreamPlanner.commonHeights.forEach{height->val q=choices.firstOrNull{it.height==height};QualityChip(StreamPlanner.qualityLabel(height),q?.estimatedBytes?.takeIf{it>0}?.let{"≈ ${Formatters.bytes(it)}"} ?: "",state.height==height,{model.height(height)})}}
+                        Text(stringResource(R.string.quality_fallback),color=c.mid,style=SingularityTheme.type.caption)
                     }
+                    if(details!=null && choices.isEmpty())Text(stringResource(R.string.formats_unavailable),color=c.warning,style=SingularityTheme.type.caption)
                     SectionHeader(stringResource(R.string.audio))
-                    if(state.prompt){Text(stringResource(R.string.audio_tracks),color=c.text,style=SingularityTheme.type.small);Text(stringResource(R.string.choose_audio),color=c.mid,style=SingularityTheme.type.body)
-                        AudioTrackSelector.sorted(d.tracks,settings.preferredAudioLanguage).forEach { t->val locale=Locale.forLanguageTag(t.locale);LanguageRow(locale.getDisplayLanguage(locale).ifBlank{t.displayName.ifBlank{unknownLanguage}},locale.getDisplayCountry(locale)+" · "+stringResource(when(t.type){"DUBBED"->R.string.dubbed;"DESCRIPTIVE"->R.string.descriptive;else->R.string.original}),t.locale,state.trackId==t.id,{model.track(t.id)})}
+                    if(details==null || details.tracks.isEmpty())Text(stringResource(R.string.resolve_in_queue),color=c.mid,style=SingularityTheme.type.body)
+                    else if(state.prompt){Text(stringResource(R.string.audio_tracks),color=c.text,style=SingularityTheme.type.small);Text(stringResource(R.string.choose_audio),color=c.mid,style=SingularityTheme.type.body)
+                        AudioTrackSelector.sorted(details.tracks,settings.preferredAudioLanguage).forEach { t->val locale=Locale.forLanguageTag(t.locale);LanguageRow(locale.getDisplayLanguage(locale).ifBlank{t.displayName.ifBlank{unknownLanguage}},locale.getDisplayCountry(locale)+" · "+stringResource(when(t.type){"DUBBED"->R.string.dubbed;"DESCRIPTIVE"->R.string.descriptive;else->R.string.original}),t.locale,state.trackId==t.id,{model.track(t.id)})}
                         SettingsRow(Icons.Rounded.Bookmark,stringResource(R.string.remember_channel),trailing={SingularitySwitch(state.remember,model::remember,stringResource(R.string.remember_channel))})
-                    }else{Row(verticalAlignment=Alignment.CenterVertically){Text(track?.displayName?.ifBlank{Locale.forLanguageTag(track.locale).displayLanguage}.orEmpty(),color=c.mid,modifier=Modifier.weight(1f));if(d.tracks.size>1)SingularityButton(stringResource(R.string.select_audio),model::showTracks,variant="tertiary")}}
+                    }else{Row(verticalAlignment=Alignment.CenterVertically){Text(track?.displayName?.ifBlank{Locale.forLanguageTag(track.locale).displayLanguage}?.ifBlank{stringResource(R.string.original)}.orEmpty(),color=c.mid,modifier=Modifier.weight(1f));if(details.tracks.size>1)SingularityButton(stringResource(R.string.select_audio),model::showTracks,variant="tertiary")}}
                 }
             }
             state.playlist?.let { list->
                 GlassCard {Text(list.title,color=c.text,style=SingularityTheme.type.title);SingularityButton(stringResource(R.string.select_all),model::selectAll,variant="secondary")
                     SegmentedToggle(listOf(stringResource(R.string.video),stringResource(R.string.audio)),if(state.audioOnly)1 else 0,{model.kind(it==1)})
-                    if(!state.audioOnly)Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){listOf(720,1080,Int.MAX_VALUE).forEach{quality->QualityChip(if(quality==Int.MAX_VALUE)stringResource(R.string.max)else "${quality}p","",state.height==quality,{model.height(quality)})}}
+                    if(!state.audioOnly)Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){StreamPlanner.commonHeights.forEach{quality->QualityChip(StreamPlanner.qualityLabel(quality),"",state.height==quality,{model.height(quality)})}}
                     LazyColumn(Modifier.heightIn(max=480.dp)) {items(list.entries,key={it.ytId},contentType={"playlist-video"}){item->Row(verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(48.dp).clickable{model.select(item.ytId)}.padding(12.dp).background(if(item.ytId in state.selected)c.accent else c.top,RoundedCornerShape(8.dp)));Box(Modifier.weight(1f)){VideoCardCompact(item.title,item.channel,item.thumbnail){model.select(item.ytId)}}}}}
                     if(list.hasMore)SingularityButton(stringResource(R.string.load_more),{model.loadMore()},variant="secondary",loading=state.loadingMore)
                 }
@@ -94,7 +99,7 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
             if(details==null && recent.isNotEmpty()){SectionHeader(stringResource(R.string.recent_captures));LazyRow(horizontalArrangement=Arrangement.spacedBy(12.dp)){items(recent.take(8),key={it.id},contentType={"shelf"}){v->VideoCardShelf(v.title,v.channelName,v.thumbnailPath,Formatters.duration(v.durationMs)){onPlay(v)}}}}
             Spacer(Modifier.height(16.dp))
         }
-        if(details!=null || state.playlist!=null)SingularityButton(if(state.playlist!=null)pluralStringResource(R.plurals.playlist_download,state.selected.size,state.selected.size)else stringResource(R.string.download_size,selected?.estimatedBytes?.takeIf{it>0}?.let{Formatters.bytes(it)} ?: stringResource(R.string.unknown_size)),{enqueue()},Modifier.fillMaxWidth().padding(vertical=12.dp),enabled=if(state.playlist!=null)state.selected.isNotEmpty()else selected!=null,loading=state.busy)
+        if(videoLink || state.playlist!=null)SingularityButton(if(state.playlist!=null)pluralStringResource(R.plurals.playlist_download,state.selected.size,state.selected.size)else stringResource(R.string.download_size,selected?.estimatedBytes?.takeIf{it>0}?.let{Formatters.bytes(it)} ?: stringResource(R.string.unknown_size)),{enqueue()},Modifier.fillMaxWidth().padding(vertical=12.dp),enabled=if(state.playlist!=null)state.selected.isNotEmpty()else !state.busy,loading=state.busy)
     }
 }
 @Composable fun QueueScreen(model:QueueModel) {

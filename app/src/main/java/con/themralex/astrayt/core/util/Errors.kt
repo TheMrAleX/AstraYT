@@ -12,7 +12,7 @@ object Errors {
         "disk_full" in msg->"DISK"
         "Unsupported" in name || "unsupported_url" in msg->"URL"
         "ContentNotAvailable" in name || "removed" in msg->"REMOVED"
-        "Parsing" in name || "Extraction" in name->"EXTRACTOR"
+        "no_streams" in msg || "Parsing" in name || "Extraction" in name->"EXTRACTOR"
         error is SecurityException || "storage" in msg->"STORAGE"
         error is java.io.IOException->"NETWORK"
         else->"GENERIC"

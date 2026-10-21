@@ -19,7 +19,7 @@
     <string name="audio_tracks">Este vídeo tiene varios audios</string>
     <string name="choose_audio">Elige cómo quieres escucharlo</string>
     <string name="remember_channel">Recordar para este canal</string>
-    <string name="best_audio">Mejor calidad M4A</string>
+    <string name="best_audio">Mejor calidad de audio</string>
     <string name="added_queue">Añadido a Órbita</string>
     <string name="cancel">Cancelar</string>
     <string name="confirm">Confirmar</string>
@@ -148,4 +148,8 @@
 <plurals name="library_summary"><item quantity="one">%1$d archivo · %2$s</item><item quantity="other">%1$d archivos · %2$s</item></plurals>
 <plurals name="playlist_download"><item quantity="one">Descargar %d vídeo</item><item quantity="other">Descargar %d vídeos</item></plurals>
 <string name="no_compatible_update">Hay una actualización, pero no incluye una APK compatible con este dispositivo.</string>
+    <string name="pending_video">Vídeo pendiente de analizar</string>
+    <string name="quality_fallback">Se descargará la mejor calidad disponible hasta la elegida.</string>
+    <string name="resolve_in_queue">Puedes añadirlo ya. La información y los formatos se completarán en la cola.</string>
+    <string name="formats_unavailable">YouTube no ha entregado formatos compatibles. La cola volverá a intentarlo; si falla, mostrará el motivo y podrás reintentar.</string>
 </resources>

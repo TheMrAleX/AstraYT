@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.*
 import kotlin.random.Random
 
-@kotlinx.serialization.Serializable data class DownloadOptions(val details:VideoDetails,val trackId:String?,val height:Int,val container:String,val audioOnly:Boolean)
+@kotlinx.serialization.Serializable data class DownloadOptions(val details:VideoDetails?=null,val trackId:String?=null,val height:Int=1080,val container:String="",val audioOnly:Boolean=false)
 data class Progress(val done:Long,val total:Long,val speed:Long,val eta:Long) {val fraction get()=if(total>0)done.toFloat()/total else 0f}
 private class StreamExpired:IOException()
 @Singleton class DownloadManager @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val preferences:Preferences,private val backend:YoutubeBackend,private val client:OkHttpClient,private val storage:MediaStorage) {
@@ -64,9 +64,10 @@ private class StreamExpired:IOException()
             active[row.id]=job;job.start()
         }
     }
-    suspend fun enqueue(details:VideoDetails,track:AudioTrackOption?,quality:QualityOption,audioOnly:Boolean):Long {
-        initialize();val options=DownloadOptions(details,track?.id,quality.height,quality.container,audioOnly)
-        val id=dao.enqueue(DownloadEntity(ytId=details.ytId,url=UrlParser.canonical(details.ytId),title=details.title,channelName=details.channelName,thumbnailPath=details.thumbnail,kind=if(audioOnly)"AUDIO"else"VIDEO",optionsJson=Json.encodeToString(options),bytesTotal=quality.estimatedBytes))
+    suspend fun enqueue(videoId:String,height:Int,audioOnly:Boolean,details:VideoDetails?=null,trackId:String?=null,title:String?=null,channel:String="",thumbnail:String=""):Long {
+        initialize()
+        val options=DownloadOptions(details,trackId,height,audioOnly=audioOnly)
+        val id=dao.enqueue(DownloadEntity(ytId=videoId,url=UrlParser.canonical(videoId),title=details?.title ?: title ?: context.getString(con.themralex.astrayt.R.string.pending_video),channelName=details?.channelName ?: channel,thumbnailPath=details?.thumbnail ?: thumbnail,kind=if(audioOnly)"AUDIO"else"VIDEO",optionsJson=Json.encodeToString(options)))
         startService();return id
     }
     fun startService(){ContextCompat.startForegroundService(context,Intent(context,DownloadService::class.java))}
@@ -77,18 +78,39 @@ private class StreamExpired:IOException()
     suspend fun resumeAll(){initialize();dao.allDownloads().filter{it.state in setOf("PAUSED","FAILED","WAITING_NETWORK")}.forEach{dao.state(it.id,"QUEUED")};startService()}
     suspend fun prioritize(id:Long)=dao.prioritize(id)
     suspend fun clearFinished()=dao.clearFinished()
-    private suspend fun awaitNetwork(id:Long,prefs:Settings){while(!online(prefs.wifiOnly)){dao.state(id,"WAITING_NETWORK");withTimeoutOrNull(10000){network.first{online(prefs.wifiOnly)}};currentCoroutineContext().ensureActive()};dao.state(id,"DOWNLOADING")}
+    private suspend fun awaitNetwork(id:Long,prefs:Settings,nextState:String="DOWNLOADING"){while(!online(prefs.wifiOnly)){dao.state(id,"WAITING_NETWORK");withTimeoutOrNull(10000){network.first{online(prefs.wifiOnly)}};currentCoroutineContext().ensureActive()};dao.state(id,nextState)}
     private suspend fun pipeline(row:DownloadEntity,prefs:Settings) {
         val dir=File(context.noBackupFilesDir,"dl/${row.id}").apply{mkdirs()};val state=ChunkState(dir)
         var wake:PowerManager.WakeLock?=null
         try {
             startService();dao.state(row.id,"FETCHING")
             val options=Json.decodeFromString<DownloadOptions>(row.optionsJson)
-            var details=if(System.currentTimeMillis()-options.details.fetchedAt>1200000)backend.refreshStreams(row.ytId)else options.details
+            awaitNetwork(row.id,prefs,"FETCHING")
+            var details=options.details?.takeIf{System.currentTimeMillis()-it.fetchedAt<1200000 && (it.videos.isNotEmpty() || it.tracks.isNotEmpty())} ?: backend.details(row.ytId)
+            var remembered=dao.channelLanguage(details.channelId)
+            fun selectedTrack()=details.tracks.firstOrNull{it.id==options.trackId} ?: AudioTrackSelector.select(details.tracks,prefs.preferredAudioLanguage,remembered,prefs.autoPickDubbed,batch=true).track
+            var pinned:QualityOption?=null
+            fun quality():QualityOption {
+                val all=StreamPlanner.options(details,selectedTrack(),options.audioOnly)
+                val previous=pinned
+                return (if(previous==null)StreamPlanner.default(all,options.height)
+                    else all.firstOrNull{it.video?.id==previous.video?.id && it.audio?.id==previous.audio?.id && it.container==previous.container && it.height==previous.height})
+                    ?: throw IllegalStateException("NO_STREAMS")
+            }
+            // Metadata can succeed while YouTube withholds stream URLs. Retry in the queue,
+            // never cache an empty result as a successful download plan.
+            var attempt=0
+            while(StreamPlanner.options(details,selectedTrack(),options.audioOnly).isEmpty() && attempt<2){
+                delay(1000L shl attempt++)
+                awaitNetwork(row.id,prefs,"FETCHING")
+                details=backend.refreshStreams(row.ytId)
+                remembered=dao.channelLanguage(details.channelId)
+            }
             val refreshMutex=Mutex();var refreshed=false
             suspend fun refresh(){refreshMutex.withLock{if(!refreshed){details=backend.refreshStreams(row.ytId);refreshed=true}}}
-            fun quality():QualityOption {val track=details.tracks.firstOrNull{it.id==options.trackId} ?: AudioTrackSelector.select(details.tracks,prefs.preferredAudioLanguage,batch=true,autoDub=prefs.autoPickDubbed).track;val all=StreamPlanner.options(details,track,options.audioOnly);return all.firstOrNull{it.height==options.height && it.container==options.container} ?: throw IOException("Requested stream no longer available")}
-            var plan=quality();awaitNetwork(row.id,prefs)
+            var plan=quality();pinned=plan
+            dao.metadata(row.id,details.title,details.channelName,details.thumbnail)
+            awaitNetwork(row.id,prefs)
             val lengths=mutableMapOf<String,Long>()
             suspend fun length(stream:MediaStream):Long {return try {contentLength(row.id,stream.url)}catch(e:StreamExpired){refresh();plan=quality();contentLength(row.id,(if(stream.videoOnly)plan.video else plan.audio ?: plan.video)?.url ?: throw e)}}
             plan.video?.let{lengths["video"]=length(it)};plan.audio?.let{lengths["audio"]=length(it)}
@@ -175,7 +197,7 @@ private class StreamExpired:IOException()
                 }.awaitAll()
             }
             state.save();wake?.let{if(it.isHeld)it.release()};wake=null;dao.state(row.id,"MUXING")
-            storage.finish(row,options,details,plan,File(dir,"video.part").takeIf{it.exists()},File(dir,"audio.part").takeIf{it.exists()})
+            storage.finish(row,options.copy(trackId=selectedTrack()?.id),details,plan,File(dir,"video.part").takeIf{it.exists()},File(dir,"audio.part").takeIf{it.exists()})
             dao.progress(row.id,total,total);dao.state(row.id,"DONE");dir.deleteRecursively()
         }catch(e:CancellationException){throw e}catch(e:Exception){if(dao.download(row.id)?.state !in setOf("CANCELED","PAUSED"))dao.state(row.id,"FAILED",Errors.code(e))}
         finally {if(dir.exists())runCatching{state.save()};wake?.let{if(it.isHeld)it.release()}}

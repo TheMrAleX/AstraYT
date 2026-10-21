@@ -34,7 +34,7 @@ import javax.inject.*
         val deferred=mutex.withLock {
             cache[videoId]?.takeIf{System.currentTimeMillis()-it.fetchedAt<600000}?.let{return it}
             flights[videoId] ?: scope.async {
-                try { val details=withTimeout(20000){runInterruptible{extract(videoId)}};mutex.withLock{cache[videoId]=details};details }
+                try { val details=withTimeout(20000){runInterruptible{extract(videoId)}};mutex.withLock{if(details.tracks.isNotEmpty() && details.videos.isNotEmpty())cache[videoId]=details};details }
                 finally {mutex.withLock{flights.remove(videoId)}}
             }.also{flights[videoId]=it}
         }
@@ -69,7 +69,7 @@ import javax.inject.*
     private fun extract(id:String):VideoDetails {
         val info=StreamInfo.getInfo(NewPipe.getService(0),UrlParser.canonical(id))
         if(info.streamType==StreamType.LIVE_STREAM || info.streamType==StreamType.AUDIO_LIVE_STREAM)throw IllegalStateException("LIVE_STREAM")
-        fun video(s:VideoStream)=MediaStream(s.id,s.content,s.format?.suffix.orEmpty(),s.codec.orEmpty(),s.bitrate,s.height,s.fps,videoOnly=s.isVideoOnly,hdr=s.quality.orEmpty().contains("HDR",true))
+        fun video(s:VideoStream)=ExtractorStreams.video(s)
         val tracks=info.audioStreams.filter{it.isUrl && it.deliveryMethod==DeliveryMethod.PROGRESSIVE_HTTP}.groupBy{it.audioTrackId ?: "original"}.map{(key,streams)->val first=streams.first();AudioTrackOption(key,first.audioLocale?.toLanguageTag().orEmpty(),first.audioTrackType?.name ?: "ORIGINAL",first.audioTrackName.orEmpty(),streams.map{s->MediaStream(s.id,s.content,s.format?.suffix.orEmpty(),s.codec.orEmpty(),if(s.bitrate>0)s.bitrate else s.averageBitrate*1000)},first.audioTrackType==AudioTrackType.ORIGINAL)}
         return VideoDetails(id,info.name,info.uploaderUrl,info.uploaderName,info.uploaderAvatars.maxByOrNull{it.height}?.url.orEmpty(),info.thumbnails.maxByOrNull{it.height}?.url.orEmpty(),info.duration*1000,info.viewCount,info.uploadDate?.instant?.toEpochMilli() ?: 0,info.description.content.take(2000),(info.videoOnlyStreams+info.videoStreams).filter{it.isUrl && it.deliveryMethod==DeliveryMethod.PROGRESSIVE_HTTP}.map(::video),tracks)
     }

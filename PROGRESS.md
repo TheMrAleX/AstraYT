@@ -53,3 +53,15 @@ Las casillas de las siete fases permanecen abiertas porque representan la especi
 - La subida inicial del borrador rechazó un commit abreviado; se corrigió con el SHA completo y la reejecución terminó correctamente.
 - La rama temporal de artefactos se retira tras la publicación para mantener el trabajo futuro en main.
 - Las menciones anteriores a commits solo locales o a la primera publicación pendiente son históricas. La restauración en una tarea nueva y las pruebas reales en Android/YouTube siguen sin verificarse.
+
+## Corrección 0.0.2: formatos vacíos y captura sin bloquear
+- Las capturas del usuario muestran metadatos disponibles, opciones vacías y botón deshabilitado. Sin acceso funcional a YouTube/dispositivo no se ha confirmado la causa concreta de esa extracción.
+- Opciones de vídeo/audio y calidades comunes 144/240/360/480/720/1080/1440/2160 visibles con un enlace de vídeo válido, incluso mientras se analiza o si falla el análisis.
+- La selección es un límite solicitado, independiente de los formatos recibidos. El análisis no la sobrescribe; la cola selecciona el máximo compatible hasta ese límite, o el mínimo disponible si no existe ninguno inferior.
+- Encolar guarda ID/enlace, calidad y modo aunque no haya metadatos; el análisis continúa mediante el backend compartido y se completa en FETCHING con la concurrencia de la cola. Las listas también se encolan sin analizar cada entrada en Capturar.
+- La cola espera red antes de analizar, vuelve a extraer hasta dos veces si no hay formatos compatibles, actualiza título/miniatura y muestra un error de extractor con reintento cuando sigue sin formatos.
+- No se cachean resultados sin audio/vídeo; recuperación de altura/FPS desde la etiqueta de resolución y de compatibilidad AVC/VP9 mediante itags conocidos cuando falta códec. Los códecs desconocidos/AV1 no se tratan como AVC.
+- Una renovación de URL durante la transferencia conserva los IDs y el contenedor para evitar mezclar formatos entre fragmentos. JSON de la cola antigua compatible, sin migración de Room.
+- Decisión: usar la misma firma local y publicar 0.0.2 para ambas arquitecturas, manteniendo actualizaciones sobre 0.0.1.
+- Corrección adicional del planificador: si falta AAC para H.264, intenta VP9/Opus de esa calidad en vez de descartarla. Audio prioriza M4A y permite WebM/Opus sin recodificar cuando falta M4A (MIME/extensión correctos); evita bloquear audio compatible.
+- Verificación de lógica: 30 pruebas aprobadas, sin fallos/omisiones; lintRelease sin errores. Compilación Kotlin de release correcta; empaquetado final y firma se verifican antes de publicar.

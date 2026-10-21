@@ -19,7 +19,7 @@
     <string name="audio_tracks">This video has multiple audio tracks</string>
     <string name="choose_audio">Choose how you want to listen</string>
     <string name="remember_channel">Remember for this channel</string>
-    <string name="best_audio">Best M4A quality</string>
+    <string name="best_audio">Best audio quality</string>
     <string name="added_queue">Added to Orbit</string>
     <string name="cancel">Cancel</string>
     <string name="confirm">Confirm</string>
@@ -148,4 +148,8 @@
 <plurals name="library_summary"><item quantity="one">%1$d file · %2$s</item><item quantity="other">%1$d files · %2$s</item></plurals>
 <plurals name="playlist_download"><item quantity="one">Download %d video</item><item quantity="other">Download %d videos</item></plurals>
 <string name="no_compatible_update">An update is available, but it has no APK compatible with this device.</string>
+    <string name="pending_video">Video awaiting analysis</string>
+    <string name="quality_fallback">Downloads the best available quality up to your selection.</string>
+    <string name="resolve_in_queue">Add it now. Information and formats will be resolved in the queue.</string>
+    <string name="formats_unavailable">YouTube returned no compatible formats. The queue will try again; if it fails, it will show the reason and let you retry.</string>
 </resources>

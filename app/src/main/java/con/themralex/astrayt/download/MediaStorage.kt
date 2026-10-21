@@ -17,7 +17,7 @@ import java.nio.ByteBuffer
 import javax.inject.*
 @Singleton class MediaStorage @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val client:OkHttpClient) {
     suspend fun finish(row:DownloadEntity,options:DownloadOptions,details:VideoDetails,plan:QualityOption,video:File?,audio:File?)=withContext(Dispatchers.IO) {
-        val audioOnly=options.audioOnly;val mime=if(audioOnly)"audio/mp4" else if(plan.container=="webm")"video/webm"else"video/mp4"
+        val audioOnly=options.audioOnly;val mime=if(audioOnly)if(plan.container=="webm")"audio/webm"else"audio/mp4" else if(plan.container=="webm")"video/webm"else"video/mp4"
         val name=details.title.replace(Regex("[\\/:*?\"<>|]"),"_").take(120)+"."+plan.container
         var legacy:File?=null
         val values=ContentValues().apply{put(MediaStore.MediaColumns.DISPLAY_NAME,name);put(MediaStore.MediaColumns.TITLE,details.title);put(MediaStore.MediaColumns.MIME_TYPE,mime);put(MediaStore.Audio.Media.ARTIST,details.channelName);if(Build.VERSION.SDK_INT>=29){put(MediaStore.MediaColumns.RELATIVE_PATH,(if(audioOnly)Environment.DIRECTORY_MUSIC else Environment.DIRECTORY_MOVIES)+"/AstraYT");put(MediaStore.MediaColumns.IS_PENDING,1)}else{@Suppress("DEPRECATION") val folder=File(Environment.getExternalStoragePublicDirectory(if(audioOnly)Environment.DIRECTORY_MUSIC else Environment.DIRECTORY_MOVIES),"AstraYT").apply{mkdirs()};legacy=File(folder,"${System.currentTimeMillis()}-$name");put(MediaStore.MediaColumns.DATA,legacy!!.absolutePath)}}
