@@ -1,0 +1,62 @@
+name: Release
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md']
+  workflow_dispatch:
+  workflow_call:
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          STORE_ALIAS: ${{ secrets.KEY_ALIAS }}
+          ENTRY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          key_path="$RUNNER_TEMP/astrayt-release.jks"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$key_path"
+            test -n "$STORE_PASSWORD" && test -n "$STORE_ALIAS" && test -n "$ENTRY_PASSWORD"
+          else
+            STORE_PASSWORD="$(openssl rand -hex 24)"
+            ENTRY_PASSWORD="$STORE_PASSWORD"
+            STORE_ALIAS=astrayt
+            echo "::add-mask::$STORE_PASSWORD"
+            keytool -genkeypair -keystore "$key_path" -storetype PKCS12 -alias "$STORE_ALIAS" -storepass:env STORE_PASSWORD -keypass:env ENTRY_PASSWORD -keyalg RSA -keysize 4096 -validity 10000 -dname 'CN=AstraYT Temporary Release'
+            echo '⚠️ Firma temporal: esta APK no será compatible para actualizar instalaciones firmadas por otras ejecuciones. Configura los cuatro secretos para conservar la firma.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo "KEYSTORE_PATH=$key_path"
+            echo "KEYSTORE_PASSWORD=$STORE_PASSWORD"
+            echo "KEY_ALIAS=$STORE_ALIAS"
+            echo "KEY_PASSWORD=$ENTRY_PASSWORD"
+          } >> "$GITHUB_ENV"
+      - name: Test and assemble release
+        run: ./gradlew testReleaseUnitTest assembleRelease -PappVersionCode=${{ github.run_number }} -PappVersionName=1.0.${{ github.run_number }}
+      - name: Publish APK and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          apk="AstraYT-v1.0.$RUN_NUMBER.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$apk"
+          sha256sum "$apk" > "$apk.sha256"
+          gh release create "v1.0.$RUN_NUMBER" "$apk" "$apk.sha256" --title "AstraYT v1.0.$RUN_NUMBER" --generate-notes --latest

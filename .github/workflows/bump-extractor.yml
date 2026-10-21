@@ -1,0 +1,55 @@
+name: Update extractor
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: extractor-update
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Find latest release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest=$(gh api repos/TeamNewPipe/NewPipeExtractor/releases/latest --jq .tag_name)
+          [[ "$latest" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          export EXTRACTOR_TAG="$latest"
+          python3 - <<'PYTHON'
+          import os, pathlib, re
+          path = pathlib.Path('gradle/libs.versions.toml')
+          original = path.read_text()
+          updated = re.sub(r'^extractor = "[^"]+"', 'extractor = "' + os.environ['EXTRACTOR_TAG'] + '"', original, flags=re.M)
+          if original != updated:
+              path.write_text(updated)
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+                  output.write('changed=true\n')
+          PYTHON
+      - name: Verify, commit and release
+        if: steps.version.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ./gradlew testReleaseUnitTest assembleRelease
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add gradle/libs.versions.toml
+          git commit -m 'chore: bump NewPipeExtractor'
+          git push origin HEAD:main
+          gh workflow run release.yml --ref main
