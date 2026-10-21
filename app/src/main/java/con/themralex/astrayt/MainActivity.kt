@@ -51,7 +51,7 @@ import javax.inject.Inject
     }
     override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);receive(intent)}
     private fun receive(intent:Intent?){if(intent?.action==Intent.ACTION_SEND && intent.type=="text/plain")shared=intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty();requestedScreen=intent?.getStringExtra("screen").orEmpty();downloadedId=intent?.getLongExtra("downloadId",-1) ?: -1}
-    override fun onUserLeaveHint(){super.onUserLeaveHint();val state=playback.state.value;if(playerVisible && state.playing && state.video?.kind=="VIDEO")runCatching{enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16,9)).build())}}
+    override fun onUserLeaveHint(){super.onUserLeaveHint();val state=playback.state.value;if(Build.VERSION.SDK_INT<31 && playerVisible && state.playing && state.video?.kind=="VIDEO" && !state.audioOnly)runCatching{enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16,9)).build())}}
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode:Boolean,newConfig:Configuration){super.onPictureInPictureModeChanged(isInPictureInPictureMode,newConfig);pip=isInPictureInPictureMode}
 }
 @Composable private fun AstraApp(shared:String,requestedScreen:String,downloadedId:Long,pip:Boolean,onConsumed:()->Unit,onPlayerVisible:(Boolean)->Unit) {
@@ -60,6 +60,7 @@ import javax.inject.Inject
     val context=LocalContext.current;val nav=rememberNavController();val entry by nav.currentBackStackEntryAsState();val destination=entry?.destination
     val isPlayer=destination?.hasRoute<PlayerRoute>()==true
     var toast by remember{mutableStateOf<Int?>(null)}
+    LaunchedEffect(prefs.autoplayNext){main.playback.refreshAutoplay()}
     LaunchedEffect(isPlayer){onPlayerVisible(isPlayer)}
     LaunchedEffect(Unit){listOf(main,capture,queue,library,settings).forEach{model->launch{model.effects.receiveAsFlow().collect{toast=it}}}}
     LaunchedEffect(toast){if(toast!=null){delay(3500);toast=null}}
@@ -75,7 +76,7 @@ import javax.inject.Inject
                     NavHost(navController=nav,startDestination=Capture,enterTransition={fadeIn()},exitTransition={fadeOut()}) {
                         composable<Capture>{Column{if(update!=null)SingularityButton(stringResource(R.string.update_available),{external(context,update!!)},Modifier.fillMaxWidth(),"secondary");Box(Modifier.weight(1f)){CaptureScreen(capture,prefs,all,{v->main.play(v,all);nav.navigate(PlayerRoute)})}}}
                         composable<Queue>{QueueScreen(queue)}
-                        composable<Library>{LibraryScreen(library,{v,list->main.play(v,list);nav.navigate(PlayerRoute)},{nav.navigate(Capture)},{id->nav.navigate(ChannelRoute(id))})}
+                        composable<Library>{LibraryScreen(library,{v,list,audio->main.play(v,list,audio);nav.navigate(PlayerRoute)},{nav.navigate(Capture)},{id->nav.navigate(ChannelRoute(id))})}
                         composable<SettingsRoute>{SettingsScreen(settings,all)}
                         composable<ChannelRoute>{backStack->ChannelScreen(backStack.toRoute<ChannelRoute>().id,all,{v,list->main.play(v,list);nav.navigate(PlayerRoute)})}
                         composable<PlayerRoute>{PlayerScreen(main,playing,all,prefs,{value->settings.change{it.copy(autoplayNext=value)}},{id->nav.navigate(ChannelRoute(id))},{nav.popBackStack()},{video->main.close();library.delete(video)},pip)}

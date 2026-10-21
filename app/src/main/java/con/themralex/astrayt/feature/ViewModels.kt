@@ -1,5 +1,6 @@
 package con.themralex.astrayt.feature
 import androidx.lifecycle.*
+import androidx.paging.cachedIn
 import androidx.compose.runtime.Immutable
 import con.themralex.astrayt.R
 import con.themralex.astrayt.BuildConfig
@@ -22,7 +23,7 @@ abstract class ScreenModel:ViewModel() {
     protected val handler=CoroutineExceptionHandler{_,error->effects.trySend(Errors.string(Errors.code(error)))}
     fun work(block:suspend CoroutineScope.()->Unit)=viewModelScope.launch(handler,block=block)
 }
-@Immutable data class CaptureState(val url:String="",val loading:Boolean=false,val result:VideoDetails?=null,val playlist:ResolvedLink.Playlist?=null,val selected:Set<String> = emptySet(),val error:String?=null,val audioOnly:Boolean=false,val trackId:String?=null,val height:Int=1080,val prompt:Boolean=false,val remember:Boolean=false,val busy:Boolean=false)
+@Immutable data class CaptureState(val url:String="",val loading:Boolean=false,val result:VideoDetails?=null,val playlist:ResolvedLink.Playlist?=null,val selected:Set<String> = emptySet(),val error:String?=null,val audioOnly:Boolean=false,val trackId:String?=null,val height:Int=1080,val prompt:Boolean=false,val remember:Boolean=false,val busy:Boolean=false,val loadingMore:Boolean=false)
 @HiltViewModel class CaptureModel @Inject constructor(private val saved:SavedStateHandle,private val backend:YoutubeBackend,private val prefs:Preferences,private val dao:AstraDao,private val downloads:DownloadManager):ScreenModel() {
     private val _state=MutableStateFlow(CaptureState(url=saved["url"] ?: ""))
     val state=_state.asStateFlow()
@@ -35,7 +36,7 @@ abstract class ScreenModel:ViewModel() {
             _state.value=_state.value.copy(loading=true)
             try {when(val resolved=backend.resolve(url)) {
                 is ResolvedLink.Video->{val p=prefs.flow.first();val remembered=dao.channelLanguage(resolved.details.channelId);val selected=AudioTrackSelector.select(resolved.details.tracks,p.preferredAudioLanguage,remembered,p.autoPickDubbed,p.askWhenAlternatives);val quality=StreamPlanner.default(StreamPlanner.options(resolved.details,selected.track),p.defaultMaxQuality);_state.value=_state.value.copy(loading=false,result=resolved.details,trackId=selected.track?.id,height=quality?.height ?: 0,prompt=selected.prompt)}
-                is ResolvedLink.Playlist->_state.value=_state.value.copy(loading=false,playlist=resolved,selected=resolved.entries.map{it.ytId}.toSet())
+                is ResolvedLink.Playlist->_state.value=_state.value.copy(loading=false,playlist=resolved,selected=resolved.entries.map{it.ytId}.toSet(),height=prefs.flow.first().defaultMaxQuality)
             }}catch(e:CancellationException){throw e}catch(e:Exception){_state.value=_state.value.copy(loading=false,error=Errors.code(e))}
         }
     }
@@ -46,11 +47,30 @@ abstract class ScreenModel:ViewModel() {
     fun showTracks(){_state.value=_state.value.copy(prompt=true)}
     fun select(id:String){_state.value=_state.value.copy(selected=if(id in _state.value.selected)_state.value.selected-id else _state.value.selected+id)}
     fun selectAll(){_state.value=_state.value.copy(selected=_state.value.playlist?.entries?.map{it.ytId}?.toSet().orEmpty())}
+    fun loadMore()=work {
+        val current=_state.value
+        val playlist=current.playlist ?: return@work
+        if(current.loadingMore || !playlist.hasMore || current.busy)return@work
+        _state.value=current.copy(loadingMore=true)
+        try {
+            val next=backend.morePlaylist(playlist.url)
+            if(_state.value.playlist?.url!=playlist.url)return@work
+            val selected=if(playlist.entries.all{it.ytId in current.selected})current.selected+next.entries.map{it.ytId}else current.selected
+            _state.value=_state.value.copy(playlist=playlist.copy(entries=(playlist.entries+next.entries).distinctBy{it.ytId}.take(200),hasMore=next.hasMore),selected=selected)
+        }finally{_state.value=_state.value.copy(loadingMore=false)}
+    }
     fun enqueue()=work {
         val state=_state.value;_state.value=state.copy(busy=true)
         try {
             val p=prefs.flow.first()
-            if(state.playlist!=null){for(entry in state.playlist.entries.filter{it.ytId in state.selected}){val d=backend.details(entry.ytId);val t=AudioTrackSelector.select(d.tracks,p.preferredAudioLanguage,dao.channelLanguage(d.channelId),p.autoPickDubbed,p.askWhenAlternatives,batch=true).track;val q=StreamPlanner.default(StreamPlanner.options(d,t,state.audioOnly),p.defaultMaxQuality) ?: continue;downloads.enqueue(d,t,q,state.audioOnly)}}
+            if(state.playlist!=null){
+                val failed=mutableSetOf<String>()
+                for(entry in state.playlist.entries.filter{it.ytId in state.selected}){
+                    try{val d=backend.details(entry.ytId);val t=AudioTrackSelector.select(d.tracks,p.preferredAudioLanguage,dao.channelLanguage(d.channelId),p.autoPickDubbed,p.askWhenAlternatives,batch=true).track;val q=StreamPlanner.default(StreamPlanner.options(d,t,state.audioOnly),state.height) ?: throw IllegalStateException("No compatible stream");downloads.enqueue(d,t,q,state.audioOnly)}
+                    catch(e:CancellationException){throw e}catch(_:Exception){failed.add(entry.ytId)}
+                }
+                if(failed.isNotEmpty()){_state.value=_state.value.copy(selected=failed);effects.send(R.string.batch_partial);return@work}
+            }
             else {val d=state.result ?: return@work;val t=d.tracks.firstOrNull{it.id==state.trackId};val options=StreamPlanner.options(d,t,state.audioOnly);val q=options.firstOrNull{it.height==state.height} ?: options.lastOrNull() ?: return@work;if(state.remember && t!=null)dao.remember(ChannelAudioPref(d.channelId,t.locale));downloads.enqueue(d,t,q,state.audioOnly)}
             saved["url"]="";_state.value=CaptureState();effects.send(R.string.added_queue)
         }finally{_state.value=_state.value.copy(busy=false)}
@@ -59,6 +79,11 @@ abstract class ScreenModel:ViewModel() {
 @HiltViewModel class QueueModel @Inject constructor(dao:AstraDao,val manager:DownloadManager):ScreenModel() {
     val state=dao.downloads().stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     val progress=manager.progress
+    private val _pending=MutableStateFlow(setOf<Long>())
+    val pending=_pending.asStateFlow()
+    private val undoJobs=mutableMapOf<Long,Job>()
+    fun cancelWithUndo(id:Long){undoJobs.remove(id)?.cancel();_pending.value=_pending.value+id;undoJobs[id]=work{delay(4000);manager.cancel(id);_pending.value=_pending.value-id;undoJobs.remove(id)}}
+    fun undoCancel(id:Long){undoJobs.remove(id)?.cancel();_pending.value=_pending.value-id}
     init{work{manager.initialize()}}
     fun pause(id:Long)=work{manager.pause(id)}
     fun resume(id:Long)=work{manager.resume(id)}
@@ -72,6 +97,23 @@ abstract class ScreenModel:ViewModel() {
     private val query=MutableStateFlow("")
     val search=query.asStateFlow()
     val state=query.debounce(150).flatMapLatest{q->val tokens=q.split(Regex("[^\\p{L}\\p{N}]+" )).filter{it.isNotBlank()};if(tokens.isEmpty())dao.videos()else dao.search(tokens.joinToString(" AND "){"\"${it.replace("\"", "")}\"*"})}.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
+    private data class Filter(val kind:String?=null,val unwatched:Boolean=false,val channel:String?=null,val sort:Int=0)
+    private val filter=MutableStateFlow(Filter())
+    val recent=prefs.flow.map{it.recentSearches}.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
+    val paged=combine(query,filter){query,filter->query to filter}.debounce(150).flatMapLatest{(text,filter)->
+        val tokens=text.split(Regex("""[^\p{L}\p{N}]+""")).filter{it.isNotBlank()}
+        val where=mutableListOf<String>();val args=mutableListOf<Any>()
+        val join=if(tokens.isEmpty())""else" JOIN video_fts ON videos.id=video_fts.rowid"
+        if(tokens.isNotEmpty()){where.add("video_fts MATCH ?");args.add(tokens.joinToString(" AND "){"\"$it\"*"})}
+        filter.kind?.let{where.add("videos.kind = ?");args.add(it)}
+        if(filter.unwatched)where.add("positionMs < durationMs * 0.95")
+        filter.channel?.let{where.add("channelId = ?");args.add(it)}
+        val order=when(filter.sort){1->"title COLLATE NOCASE ASC";2->"durationMs DESC";3->"fileSizeBytes DESC";4->"channelName COLLATE NOCASE ASC";else->"addedAtMs DESC"}
+        val sql="SELECT videos.* FROM videos"+join+(if(where.isEmpty())""else" WHERE "+where.joinToString(" AND "))+" ORDER BY "+order
+        androidx.paging.Pager(androidx.paging.PagingConfig(pageSize=20,enablePlaceholders=false)){dao.pagingQuery(androidx.sqlite.db.SimpleSQLiteQuery(sql,args.toTypedArray()))}.flow
+    }.cachedIn(viewModelScope)
+    fun configure(kind:String?,unwatched:Boolean,channel:String?,sort:Int){filter.value=Filter(kind,unwatched,channel,sort)}
+    fun clearSearches()=work{prefs.update{it.copy(recentSearches=emptyList())}}
     val all=dao.videos().stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     init{work{storage.pruneMissing()}}
     fun search(text:String){query.value=text}
@@ -91,7 +133,7 @@ abstract class ScreenModel:ViewModel() {
 }
 @HiltViewModel class MainModel @Inject constructor(val playback:Playback,private val downloads:DownloadManager,private val dao:AstraDao):ScreenModel() {
     init{work{downloads.initialize()}}
-    fun play(video:VideoEntity,playlist:List<VideoEntity>)=work{playback.play(video,playlist.ifEmpty{listOf(video)})}
+    fun play(video:VideoEntity,playlist:List<VideoEntity>,audioOnly:Boolean=false)=work{playback.play(video,playlist.ifEmpty{listOf(video)},audioOnly)}
     fun playDownloaded(id:Long)=work{val row=dao.download(id) ?: return@work;val all=dao.allVideos();all.firstOrNull{it.ytId==row.ytId}?.let{playback.play(it,all)}}
     fun toggle()=work{playback.toggle()}
     fun close()=work{playback.close()}

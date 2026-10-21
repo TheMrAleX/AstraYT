@@ -19,4 +19,36 @@ class LogicTest {
     @Test fun speedAndEtaUseTransferredBytes(){val m=TransferMeter();m.sample(0,0,10000);val (speed,eta)=m.sample(1000,2000,10000);assertEquals(2000L,speed);assertEquals(4L,eta);assertEquals(0L,m.sample(2000,0,10000).first)}
     @Test fun formattersRespectLocale(){assertEquals("1,5 MB",Formatters.bytes(1572864,Locale.forLanguageTag("es")));assertEquals("1:01:01",Formatters.duration(3661000));assertEquals("0:00",Formatters.duration(-1))}
     @Test fun plannerChoosesCompatiblePairs(){val a=MediaStream("a","https://x","m4a",bitrate=128000);val w=MediaStream("w","https://x","webm","opus",128000);val t=track("o","en","ORIGINAL").copy(streams=listOf(a,w));val vs=listOf(MediaStream("1080","https://x","mp4","avc1",4000000,1080,60,videoOnly=true),MediaStream("2160","https://x","webm","vp09",8000000,2160,30,videoOnly=true));val d=VideoDetails("id","t","c","c","","",10000,0,0,"",vs,listOf(t));val options=StreamPlanner.options(d,t);assertEquals(listOf("mp4","webm"),options.map{it.container});assertEquals("a",options.first().audio?.id);assertEquals("w",options.last().audio?.id);assertEquals(1080,StreamPlanner.default(options,1080)?.height);assertTrue(options.first().estimatedBytes>0);assertEquals("m4a",StreamPlanner.options(d,t,true).single().container)}
+
+    @Test fun stateSurvivesRestartAndRejectsWrongLength() {
+        val dir=java.nio.file.Files.createTempDirectory("astrayt-state").toFile()
+        try {
+            val part=java.io.File(dir,"video.part")
+            java.io.RandomAccessFile(part,"rw").use{it.setLength(1024)}
+            val state=ChunkState(dir)
+            state.prepare("video",1024,part)
+            state.done("video",0)
+            state.done("video",9)
+            state.save()
+            val restored=ChunkState(dir)
+            assertTrue(restored.prepare("video",1024,part)[9])
+            assertFalse(restored.has("video",1))
+            java.io.RandomAccessFile(part,"rw").use{it.setLength(10)}
+            assertTrue(restored.prepare("video",1024,part).isEmpty)
+        } finally {dir.deleteRecursively()}
+    }
+    @Test fun corruptStateDoesNotClaimCompletedChunks() {
+        val dir=java.nio.file.Files.createTempDirectory("astrayt-corrupt").toFile()
+        try {
+            java.io.File(dir,"state.bin").writeBytes(byteArrayOf(1,2,3))
+            val part=java.io.File(dir,"audio.part").apply{writeBytes(ByteArray(10))}
+            assertTrue(ChunkState(dir).prepare("audio",10,part).isEmpty)
+        } finally {dir.deleteRecursively()}
+    }
+    @Test fun embeddedShareTextIsAccepted() {assertEquals(YoutubeLink.Video("dQw4w9WgXcQ"),UrlParser.parse("Mira este vídeo https://youtu.be/dQw4w9WgXcQ?t=42"))}
+    @Test fun unavailableAudioFormatProducesNoInvalidMuxPlan() {
+        val t=track("o","en","ORIGINAL").copy(streams=listOf(MediaStream("a","https://x","m4a","mp4a",128000)))
+        val d=VideoDetails("id","t","c","c","","",10000,0,0,"",listOf(MediaStream("v","https://x","webm","vp09",8000000,2160,30,videoOnly=true)),listOf(t))
+        assertTrue(StreamPlanner.options(d,t).isEmpty())
+    }
 }

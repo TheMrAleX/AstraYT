@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.*
+import androidx.compose.foundation.interaction.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.*
 import androidx.compose.foundation.text.*
@@ -76,8 +77,11 @@ import kotlin.random.Random
 }
 @Composable fun SingularityButton(text: String,onClick: ()->Unit,modifier: Modifier=Modifier,variant: String="primary",enabled: Boolean=true,loading: Boolean=false) {
     val c=SingularityTheme.colors;val shape=CircleShape
+    val interactions=remember { MutableInteractionSource() }
+    val pressed by interactions.collectIsPressedAsState()
+    val scale by animateFloatAsState(if(pressed).97f else 1f,spring(dampingRatio=.8f,stiffness=400f),label="press")
     val bg=when(variant){"primary"->c.linear;"secondary"->Brush.linearGradient(listOf(c.high,c.high));else->Brush.linearGradient(listOf(Color.Transparent,Color.Transparent))}
-    Box(modifier.defaultMinSize(minHeight=52.dp,minWidth=48.dp).alpha(if(enabled)1f else .35f).clip(shape).background(bg).then(if(variant=="secondary")Modifier.border(1.dp,c.border,shape)else Modifier).clickable(enabled=enabled && !loading,onClick=onClick).padding(horizontal=20.dp,vertical=12.dp),contentAlignment=Alignment.Center) {
+    Box(modifier.graphicsLayer{scaleX=scale;scaleY=scale}.defaultMinSize(minHeight=52.dp,minWidth=48.dp).alpha(if(enabled)1f else .35f).clip(shape).background(bg).then(if(variant=="secondary")Modifier.border(1.dp,c.border,shape)else Modifier).clickable(interactionSource=interactions,indication=LocalIndication.current,enabled=enabled && !loading,onClick=onClick).padding(horizontal=20.dp,vertical=12.dp),contentAlignment=Alignment.Center) {
         if(loading) AccretionRing(0f,24.dp,"indeterminate") else Text(text,color=if(variant=="primary")c.void else if(variant=="tertiary")c.accent else c.text,style=SingularityTheme.type.small,textAlign=TextAlign.Center)
     }
 }
@@ -100,14 +104,16 @@ import kotlin.random.Random
         error?.let{Text(it,color=c.error,style=SingularityTheme.type.label,modifier=Modifier.padding(8.dp))}
     }
 }
-@Composable fun MetadataCard(title: String,channel: String,thumbnail: String?,duration: String,modifier: Modifier=Modifier) {
+@Composable fun MetadataCard(title: String,channel: String,thumbnail: String?,duration: String,modifier: Modifier=Modifier,watchedProgress:Float=0f,highlight:String="") {
     val c=SingularityTheme.colors
     Column(modifier,verticalArrangement=Arrangement.spacedBy(12.dp)) {
         Box {
             AsyncImage(thumbnail,null,Modifier.fillMaxWidth().aspectRatio(16f/9).clip(RoundedCornerShape(16.dp)).background(c.high),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
+            if(watchedProgress>0)AccretionProgressBar(watchedProgress,Modifier.align(Alignment.BottomCenter),3.dp)
             Text(duration,color=c.text,style=SingularityTheme.type.caption,modifier=Modifier.align(Alignment.BottomEnd).padding(8.dp).clip(CircleShape).background(c.void.copy(alpha=.7f)).padding(6.dp))
         }
-        Text(title,color=c.text,style=SingularityTheme.type.small,maxLines=2,overflow=TextOverflow.Ellipsis)
+        val styledTitle=remember(title,highlight,c.corona){buildAnnotatedString{append(title);highlight.split(' ').filter{it.isNotBlank()}.forEach{token->var start=title.indexOf(token,ignoreCase=true);while(start>=0){addStyle(SpanStyle(color=c.corona),start,start+token.length);start=title.indexOf(token,start+token.length,ignoreCase=true)}}}}
+        Text(styledTitle,color=c.text,style=SingularityTheme.type.small,maxLines=2,overflow=TextOverflow.Ellipsis)
         Text(channel,color=c.mid,style=SingularityTheme.type.label)
     }
 }
@@ -136,9 +142,9 @@ import kotlin.random.Random
         labels.forEachIndexed{i,label->Row(Modifier.heightIn(min=52.dp).weight(if(i==selected)1.8f else 1f).clip(CircleShape).background(if(i==selected)c.accent.copy(alpha=.16f)else Color.Transparent).clickable{onSelect(i)}.padding(horizontal=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center){Icon(icons[i],label,tint=if(i==selected)c.accent else c.low);if(i==selected){Spacer(Modifier.width(6.dp));Text(label,color=c.accent,style=SingularityTheme.type.label,maxLines=1)}}}
     }
 }
-@Composable fun VideoCard(title: String,meta: String,thumbnail: String?,duration: String,progress: Float=0f,onClick: ()->Unit,onMore: ()->Unit,modifier: Modifier=Modifier) {
-    Column(modifier.clickable(onClick=onClick),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        Box { MetadataCard(title,meta,thumbnail,duration);if(progress>0)AccretionProgressBar(progress,Modifier.padding(top=1.dp),3.dp) }
+@Composable fun VideoCard(title: String,meta: String,thumbnail: String?,duration: String,progress: Float=0f,onClick: ()->Unit,onMore: ()->Unit,modifier: Modifier=Modifier,onLongClick: ()->Unit={},highlight:String="") {
+    Column(modifier.combinedClickable(onClick=onClick,onLongClick=onLongClick),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        MetadataCard(title,meta,thumbnail,duration,watchedProgress=progress,highlight=highlight)
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End){SingularityIcon(Icons.Rounded.MoreVert,androidx.compose.ui.res.stringResource(con.themralex.astrayt.R.string.options),onMore)}
     }
 }
@@ -164,19 +170,28 @@ import kotlin.random.Random
     val c=SingularityTheme.colors
     Row(modifier.clip(CircleShape).background(c.top).padding(16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){Box(Modifier.size(8.dp).background(c.success,CircleShape));Text(text,color=c.text,style=SingularityTheme.type.label,modifier=Modifier.weight(1f));action?.let{Text(it,color=c.accent,modifier=Modifier.clickable(onClick=onAction).padding(8.dp))}}
 }
-@Composable fun Skeleton(modifier: Modifier=Modifier) {Box(modifier.clip(RoundedCornerShape(16.dp)).background(SingularityTheme.colors.high))}
+@Composable fun Skeleton(modifier: Modifier=Modifier) {
+    val c=SingularityTheme.colors
+    val enabled=SingularityTheme.motion.enabled
+    val phase=if(enabled)rememberInfiniteTransition(label="skeleton").animateFloat(-1f,2f,infiniteRepeatable(tween(1200,easing=LinearEasing)),label="shimmer") else remember{mutableFloatStateOf(0f)}
+    Box(modifier.clip(RoundedCornerShape(16.dp)).background(c.high).drawWithCache {
+        val brush=Brush.horizontalGradient(listOf(Color.Transparent,c.top.copy(alpha=.7f),Color.Transparent),0f,size.width)
+        onDrawBehind{if(enabled)translate(left=size.width*phase.value){drawRect(brush)}}
+    })
+}
 @Composable fun EmptyState(title: String,body: String,button: String?=null,onAction: ()->Unit={}) {
     Column(Modifier.fillMaxWidth().padding(24.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(16.dp)){BlackHoleHero(120.dp,false);Text(title,color=SingularityTheme.colors.text,style=SingularityTheme.type.title,textAlign=TextAlign.Center);Text(body,color=SingularityTheme.colors.mid,style=SingularityTheme.type.body,textAlign=TextAlign.Center);button?.let{SingularityButton(it,onAction)}}
 }
 @Composable fun SingularitySwitch(checked: Boolean,onChange: (Boolean)->Unit,label: String) {
     val c=SingularityTheme.colors
-    Box(Modifier.size(56.dp,48.dp).semantics { contentDescription=label;toggleableState=if(checked)androidx.compose.ui.state.ToggleableState.On else androidx.compose.ui.state.ToggleableState.Off }.clickable{onChange(!checked)},contentAlignment=Alignment.Center){Box(Modifier.size(52.dp,30.dp).clip(CircleShape).background(if(checked)c.linear else Brush.linearGradient(listOf(c.top,c.top))).padding(4.dp)){Box(Modifier.size(22.dp).align(if(checked)Alignment.CenterEnd else Alignment.CenterStart).background(c.text,CircleShape))}}
+    val haptics=LocalHapticFeedback.current
+    Box(Modifier.size(56.dp,48.dp).semantics { contentDescription=label;toggleableState=if(checked)androidx.compose.ui.state.ToggleableState.On else androidx.compose.ui.state.ToggleableState.Off }.clickable{haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick);onChange(!checked)},contentAlignment=Alignment.Center){Box(Modifier.size(52.dp,30.dp).clip(CircleShape).background(if(checked)c.linear else Brush.linearGradient(listOf(c.top,c.top))).padding(4.dp)){Box(Modifier.size(22.dp).align(if(checked)Alignment.CenterEnd else Alignment.CenterStart).background(c.text,CircleShape))}}
 }
 @Composable fun SingularitySlider(value: Int,range: IntRange,label: String,onChange: (Int)->Unit) {
     val c=SingularityTheme.colors
-    Column {Text("$label · $value",color=c.text,style=SingularityTheme.type.label);BoxWithConstraints(Modifier.fillMaxWidth().height(48.dp).semantics{contentDescription=label;progressBarRangeInfo=ProgressBarRangeInfo(value.toFloat(),range.first.toFloat()..range.last.toFloat(),range.count()-2)}) {
+    Column {Text("$label · $value",color=c.text,style=SingularityTheme.type.label);BoxWithConstraints(Modifier.fillMaxWidth().height(48.dp).semantics{contentDescription=label;progressBarRangeInfo=ProgressBarRangeInfo(value.toFloat(),range.first.toFloat()..range.last.toFloat(),range.count()-2);setProgress{target->onChange(target.roundToInt().coerceIn(range));true}}) {
         val width=constraints.maxWidth.toFloat();val fraction=(value-range.first).toFloat()/(range.last-range.first)
-        Canvas(Modifier.fillMaxSize().pointerInput(range){detectTapGestures{offset->onChange((range.first+offset.x/width*(range.last-range.first)).roundToInt().coerceIn(range))}}){drawLine(c.hairline,Offset(0f,center.y),Offset(size.width,center.y),6.dp.toPx(),StrokeCap.Round);drawLine(c.accent,Offset(0f,center.y),Offset(size.width*fraction,center.y),6.dp.toPx(),StrokeCap.Round);drawCircle(c.accent,10.dp.toPx(),Offset((size.width*fraction).coerceIn(10.dp.toPx(),size.width-10.dp.toPx()),center.y))}
+        Canvas(Modifier.fillMaxSize().pointerInput(range){detectTapGestures{offset->onChange((range.first+offset.x/width*(range.last-range.first)).roundToInt().coerceIn(range))}}.pointerInput(range){detectHorizontalDragGestures{change,_->change.consume();onChange((range.first+change.position.x/width*(range.last-range.first)).roundToInt().coerceIn(range))}}){drawLine(c.hairline,Offset(0f,center.y),Offset(size.width,center.y),6.dp.toPx(),StrokeCap.Round);drawLine(c.accent,Offset(0f,center.y),Offset(size.width*fraction,center.y),6.dp.toPx(),StrokeCap.Round);drawCircle(c.accent,10.dp.toPx(),Offset((size.width*fraction).coerceIn(10.dp.toPx(),size.width-10.dp.toPx()),center.y))}
     }}
 }
 @Composable fun SettingsRow(icon: ImageVector,title: String,subtitle: String="",value: String="",onClick: ()->Unit={},trailing: (@Composable ()->Unit)?=null) {

@@ -17,22 +17,15 @@ import javax.inject.*
 @Singleton class NewPipeBackend @Inject constructor(private val client:OkHttpClient,private val preferences:Preferences):YoutubeBackend {
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private val mutex=Mutex()
-    private val cache=object:LinkedHashMap<String,VideoDetails>(32,.75f,true){override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,VideoDetails>?)=size>32}
+    private val cache=BoundedCache<String,VideoDetails>(32)
+    private data class PlaylistSession(val title:String,val thumbnail:String,var page:Page?,val loaded:MutableSet<String>)
+    private val playlistSessions=BoundedCache<String,PlaylistSession>(4)
     private val flights=mutableMapOf<String,Deferred<VideoDetails>>()
     @Volatile private var initialized=false
     private suspend fun init() {
         val language=preferences.flow.first().preferredAudioLanguage
         mutex.withLock {
-            if(!initialized){NewPipe.init(object:Downloader(){override fun execute(request:Request):Response {
-                val builder=okhttp3.Request.Builder().url(request.url())
-                request.headers().forEach{(key,values)->values.forEach{builder.addHeader(key,it)}}
-                if(request.headers().keys.none{it.equals("User-Agent",true)})builder.header("User-Agent","Mozilla/5.0")
-                val method=request.httpMethod();val data=request.dataToSend();builder.method(method,if(method=="GET"||method=="HEAD")null else (data ?: byteArrayOf()).toRequestBody())
-                client.newCall(builder.build()).execute().use { response->
-                    if(response.code==429)throw ReCaptchaException("Rate limited",request.url())
-                    return Response(response.code,response.message,response.headers.toMultimap(),response.body.string(),response.request.url.toString())
-                }
-            }},Localization(language));initialized=true}
+            if(!initialized){NewPipe.init(OkHttpDownloader(client),Localization(language));initialized=true}
             NewPipe.setPreferredLocalization(Localization(language))
         }
     }
@@ -53,9 +46,24 @@ import javax.inject.*
             is YoutubeLink.Video->ResolvedLink.Video(details(link.id))
             is YoutubeLink.Playlist->{init();withContext(Dispatchers.IO){withTimeout(20000){runInterruptible{
                 val canonical="https://www.youtube.com/playlist?list=${link.id}";val info=PlaylistInfo.getInfo(NewPipe.getService(0),canonical)
-                ResolvedLink.Playlist(canonical,info.name,info.thumbnails.maxByOrNull{it.height}?.url.orEmpty(),info.relatedItems.take(200).mapNotNull{item->val id=(UrlParser.parse(item.url) as? YoutubeLink.Video)?.id ?: return@mapNotNull null;PlaylistEntry(id,item.name,item.uploaderName,item.thumbnails.maxByOrNull{it.height}?.url.orEmpty(),item.duration*1000)})
+                val entries=playlistEntries(info.relatedItems).take(200)
+                synchronized(playlistSessions){playlistSessions[canonical]=PlaylistSession(info.name,info.thumbnails.maxByOrNull{it.height}?.url.orEmpty(),info.nextPage,entries.map{it.ytId}.toMutableSet())}
+                ResolvedLink.Playlist(canonical,info.name,info.thumbnails.maxByOrNull{it.height}?.url.orEmpty(),entries,info.hasNextPage() && entries.size<200)
+
             }}}}
             null->throw IllegalArgumentException("UNSUPPORTED_URL")
+        }
+    }
+    private fun playlistEntries(items:List<StreamInfoItem>)=items.mapNotNull{item->val id=(UrlParser.parse(item.url) as? YoutubeLink.Video)?.id ?: return@mapNotNull null;PlaylistEntry(id,item.name,item.uploaderName,item.thumbnails.maxByOrNull{it.height}?.url.orEmpty(),item.duration*1000)}
+    override suspend fun morePlaylist(url:String):ResolvedLink.Playlist=withContext(Dispatchers.IO){
+        init()
+        val session=synchronized(playlistSessions){playlistSessions[url]} ?: throw IllegalStateException("Playlist expired")
+        if(!Page.isValid(session.page) || session.loaded.size>=200)return@withContext ResolvedLink.Playlist(url,session.title,session.thumbnail,emptyList(),false)
+        val page=withTimeout(20000){runInterruptible{PlaylistInfo.getMoreItems(NewPipe.getService(0),url,session.page)}}
+        synchronized(playlistSessions){
+            val entries=playlistEntries(page.items).filter{it.ytId !in session.loaded}.take(200-session.loaded.size)
+            session.loaded.addAll(entries.map{it.ytId});session.page=page.nextPage
+            ResolvedLink.Playlist(url,session.title,session.thumbnail,entries,page.hasNextPage() && session.loaded.size<200)
         }
     }
     private fun extract(id:String):VideoDetails {
@@ -66,3 +74,5 @@ import javax.inject.*
         return VideoDetails(id,info.name,info.uploaderUrl,info.uploaderName,info.uploaderAvatars.maxByOrNull{it.height}?.url.orEmpty(),info.thumbnails.maxByOrNull{it.height}?.url.orEmpty(),info.duration*1000,info.viewCount,info.uploadDate?.instant?.toEpochMilli() ?: 0,info.description.content.take(2000),(info.videoOnlyStreams+info.videoStreams).filter{it.isUrl && it.deliveryMethod==DeliveryMethod.PROGRESSIVE_HTTP}.map(::video),tracks)
     }
 }
+
+private class BoundedCache<K,V>(private val maximum:Int):LinkedHashMap<K,V>(maximum,.75f,true){override fun removeEldestEntry(eldest:MutableMap.MutableEntry<K,V>?):Boolean=size>maximum}

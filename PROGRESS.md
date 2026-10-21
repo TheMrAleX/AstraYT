@@ -16,3 +16,21 @@ Decisiones: identificador solicitado por el usuario `con.themralex.astrayt`; fir
 - Bloqueo externo: el proxy devuelve 403 a YouTube; no se ha validado extracción ni descarga reales. Dominios requeridos guardados en el borrador.
 - Falta prueba en dispositivo. Las fases permanecen abiertas hasta completar su detalle funcional, accesibilidad y pulido del documento maestro; compilar no verifica toda la experiencia.
 - Compatibilidad: las últimas bibliotecas que exigen SDK 37 se sustituyeron por las últimas versiones con minCompileSdk <= 36 según sus AAR publicados.
+
+## Cierre de este incremento
+- Compilación y pruebas mediante el wrapper verificado: `./gradlew testReleaseUnitTest assembleRelease lintRelease` completado con éxito.
+- 16 pruebas ejecutadas, 0 errores/fallos/omisiones. Incluyen persistencia del bitmap y rechazo de parciales de longitud incorrecta.
+- Lint completo sin errores. Quedan advertencias de versiones más nuevas incompatibles con SDK 36 y recomendaciones no bloqueantes.
+- Workflows validados con actionlint 1.7.12; acciones fijadas a SHAs consultados en sus repositorios oficiales.
+- Biblioteca con Paging 3, FTS, cuadrícula adaptable, selección múltiple y eliminación; listas por páginas hasta 200 entradas; modo solo audio y PiP preparados.
+- Firma local persistente fuera del checkout en `/workspace/private/astrayt`. No incluir esos archivos en commits ni mostrar sus valores.
+- `install_script`, `start_skill` y dominios necesarios guardados en el borrador del entorno. El script de instalación se ejecutó con éxito y mantuvo la clave existente.
+
+## Pendiente para cumplir íntegramente agent.md
+- Pruebas reales de extracción, transferencia, muxing, reproducción y recuperación en Android. El contenedor no tiene emulador y el proxy bloquea YouTube con HTTP 403.
+- Acabado exacto del catálogo visual: animaciones ambientales, bordes de enfoque, transiciones, gestos de hojas y navegación que se oculta al desplazar.
+- Bienvenida mediante pager horizontal, detección de portapapeles al reanudar y refinamientos del reproductor, incluida la rotación bloqueable.
+- Miniaturas en todas las notificaciones activas y revisión completa de cada caso de error y accesibilidad en dispositivo.
+- Publicación del código/primera release en GitHub y prueba de restauración en una tarea nueva. Los commits existen localmente; no se ha verificado la restauración de commits locales desde un snapshot.
+
+Las casillas de las siete fases permanecen abiertas porque representan la especificación completa. Esta entrega es una primera versión compilada y firmada, no una declaración de que todos sus detalles estén terminados.

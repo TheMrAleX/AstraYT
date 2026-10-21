@@ -43,7 +43,15 @@ private class StreamExpired:IOException()
     suspend fun initialize()=initialization.withLock {
         if(ready)return@withLock
         dao.pauseInterrupted()
-        val known=dao.allDownloads().map{it.id.toString()}.toSet()
+        val stored=dao.allDownloads()
+        val paused=stored.count{it.state=="PAUSED"}
+        if(paused>0){
+            val notices=context.getSystemService(android.app.NotificationManager::class.java)
+            notices.createNotificationChannel(android.app.NotificationChannel("downloads_issues",context.getString(con.themralex.astrayt.R.string.issues_channel),android.app.NotificationManager.IMPORTANCE_HIGH))
+            val resume=android.app.PendingIntent.getForegroundService(context,101,Intent(context,DownloadService::class.java).setAction("resume_all"),android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+            notices.notify(101,androidx.core.app.NotificationCompat.Builder(context,"downloads_issues").setSmallIcon(con.themralex.astrayt.R.drawable.ic_notification).setContentTitle(context.resources.getQuantityString(con.themralex.astrayt.R.plurals.paused_count,paused,paused)).setAutoCancel(true).addAction(0,context.getString(con.themralex.astrayt.R.string.resume),resume).build())
+        }
+        val known=stored.map{it.id.toString()}.toSet()
         File(context.noBackupFilesDir,"dl").listFiles()?.filter{it.name !in known}?.forEach{it.deleteRecursively()}
         connectivity.registerDefaultNetworkCallback(object:ConnectivityManager.NetworkCallback(){override fun onAvailable(network:Network){this@DownloadManager.network.value=true};override fun onLost(network:Network){this@DownloadManager.network.value=false};override fun onCapabilitiesChanged(network:Network,capabilities:NetworkCapabilities){this@DownloadManager.network.value=capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}})
         network.value=online(false);ready=true
@@ -86,7 +94,7 @@ private class StreamExpired:IOException()
             plan.video?.let{lengths["video"]=length(it)};plan.audio?.let{lengths["audio"]=length(it)}
             val total=lengths.values.sum();if(dir.usableSpace<total*1.15)throw IOException("DISK_FULL")
             val done=AtomicLong();val totalCounter=AtomicLong(total);counters[row.id]=done to totalCounter
-            wake=context.getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"AstraYT:transfer").also{it.acquire(10*60*1000L)}
+
             val io=Dispatchers.IO.limitedParallelism(12)
             coroutineScope {
                 lengths.map { (key, length) ->
@@ -105,6 +113,7 @@ private class StreamExpired:IOException()
                                 repeat(prefs.connectionsPerStream) {
                                     launch {
                                         val buffer = ByteArray(64 * 1024)
+                                        val transferLock=context.getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"AstraYT:transfer")
                                         for (chunk in work) {
                                             var attempt = 0
                                             while (true) {
@@ -118,6 +127,7 @@ private class StreamExpired:IOException()
                                                     val url = stream?.url ?: throw IOException("Missing stream")
                                                     val call = client.newCall(Request.Builder().url(url).header("Range", "bytes=${chunk.start}-${chunk.end}").header("Accept-Encoding", "identity").build())
                                                     register(row.id, call)
+                                                    transferLock.acquire(5*60*1000L)
                                                     try {
                                                         call.execute().use { response ->
                                                             when (response.code) {
@@ -142,7 +152,7 @@ private class StreamExpired:IOException()
                                                                 }
                                                             }
                                                         }
-                                                    } finally { unregister(row.id, call) }
+                                                    } finally { unregister(row.id, call);if(transferLock.isHeld)transferLock.release() }
                                                     state.done(key, chunk.index)
                                                     val now = System.currentTimeMillis()
                                                     if (now - lastSave.get() > 2000) { state.save(); lastSave.set(now) }

@@ -13,6 +13,8 @@ data class DownloadEntity(@PrimaryKey(autoGenerate=true)val id: Long=0,val ytId:
     @Query("SELECT * FROM videos ORDER BY addedAtMs DESC") fun videos():Flow<List<VideoEntity>>
     @Query("SELECT * FROM videos ORDER BY addedAtMs DESC") fun paging():PagingSource<Int,VideoEntity>
     @Query("SELECT videos.* FROM videos JOIN video_fts ON videos.id=video_fts.rowid WHERE video_fts MATCH :query ORDER BY addedAtMs DESC") fun search(query: String):Flow<List<VideoEntity>>
+    @RawQuery(observedEntities=[VideoEntity::class,VideoFts::class]) fun pagingQuery(query:androidx.sqlite.db.SupportSQLiteQuery):PagingSource<Int,VideoEntity>
+    @Query("SELECT * FROM videos WHERE ytId=:ytId") suspend fun byYoutubeId(ytId:String):VideoEntity?
     @Query("SELECT * FROM videos WHERE id=:id") suspend fun video(id: Long):VideoEntity?
     @Query("SELECT * FROM videos") suspend fun allVideos():List<VideoEntity>
     @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun insertVideo(video: VideoEntity):Long

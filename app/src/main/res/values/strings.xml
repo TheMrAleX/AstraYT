@@ -1,4 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:locale="es">
     <string name="app_name">AstraYT</string>
     <string name="capture">Capturar</string>
     <string name="queue">Órbita</string>
@@ -136,10 +136,15 @@
     <string name="empty_channels">No hay canales recordados</string>
     <string name="download_paused">Descargas pausadas</string>
     <string name="select_audio">Cambiar</string>
-    <string name="download_summary">%1$d descargas</string>
-    <string name="library_summary">%1$d archivos · %2$s</string>
     <string name="download_size">Descargar · %1$s</string>
-    <string name="playlist_download">Descargar %1$d vídeos</string>
     <string name="unknown_size">Tamaño por confirmar</string>
     <plurals name="paused_count"><item quantity="one">%d descarga pausada</item><item quantity="other">%d descargas pausadas</item></plurals>
+<string name="load_more">Cargar más</string>
+<string name="batch_partial">Algunos vídeos no se pudieron añadir. Puedes reintentar los seleccionados.</string>
+<string name="undo">Deshacer</string>
+<string name="cancel_pending">Se cancelará la descarga</string>
+<string name="views_text">%1$s vistas</string>
+<plurals name="download_summary"><item quantity="one">%d descarga</item><item quantity="other">%d descargas</item></plurals>
+<plurals name="library_summary"><item quantity="one">%1$d archivo · %2$s</item><item quantity="other">%1$d archivos · %2$s</item></plurals>
+<plurals name="playlist_download"><item quantity="one">Descargar %d vídeo</item><item quantity="other">Descargar %d vídeos</item></plurals>
 </resources>

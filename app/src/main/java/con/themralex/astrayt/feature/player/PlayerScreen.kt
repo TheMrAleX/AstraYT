@@ -1,5 +1,9 @@
 package con.themralex.astrayt.feature.player
 import android.app.Activity
+import android.app.PictureInPictureParams
+import android.graphics.Rect
+import android.os.Build
+import android.util.Rational
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import androidx.compose.foundation.*
@@ -12,6 +16,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.*
 import androidx.compose.ui.*
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -30,21 +36,25 @@ import con.themralex.astrayt.core.designsystem.*
 import con.themralex.astrayt.core.util.Formatters
 import kotlinx.coroutines.delay
 
+@androidx.annotation.OptIn(markerClass=[androidx.media3.common.util.UnstableApi::class])
 @Composable fun PlayerScreen(main:MainModel,state:PlaybackState,all:List<VideoEntity>,settings:Settings,onAutoplay:(Boolean)->Unit,onChannel:(String)->Unit,onBack:()->Unit,onDelete:(VideoEntity)->Unit,pip:Boolean=false) {
     val video=state.video ?: return
     val context=LocalContext.current;val activity=context as? Activity;val c=SingularityTheme.colors
     var controls by remember{mutableStateOf(true)};var full by rememberSaveable{mutableStateOf(false)};var fill by remember{mutableStateOf(false)};var speeds by remember{mutableStateOf(false)};var expanded by rememberSaveable{mutableStateOf(false)};var gestureText by remember{mutableStateOf("")}
+    var sourceRect by remember{mutableStateOf<Rect?>(null)}
+    LaunchedEffect(state.playing,state.audioOnly,sourceRect){if(Build.VERSION.SDK_INT>=31){val builder=PictureInPictureParams.Builder().setAspectRatio(Rational(16,9)).setAutoEnterEnabled(state.playing && video.kind=="VIDEO" && !state.audioOnly);sourceRect?.let{builder.setSourceRectHint(it)};activity?.setPictureInPictureParams(builder.build())}}
+    DisposableEffect(Unit){onDispose{if(Build.VERSION.SDK_INT>=31)activity?.setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(false).build())}}
     val playback=main.playback
     val audio=remember{context.getSystemService(AudioManager::class.java)}
     LaunchedEffect(controls,state.playing,gestureText){if(gestureText.isNotBlank()){delay(900);gestureText=""};if(controls && state.playing){delay(3000);controls=false}}
     DisposableEffect(full){val window=activity?.window;val controller=window?.let{WindowCompat.getInsetsController(it,it.decorView)};if(full){activity?.requestedOrientation=ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;controller?.hide(WindowInsetsCompat.Type.systemBars());controller?.systemBarsBehavior=WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE}else{activity?.requestedOrientation=ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;controller?.show(WindowInsetsCompat.Type.systemBars())};onDispose{activity?.requestedOrientation=ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;controller?.show(WindowInsetsCompat.Type.systemBars());main.save()}}
     Column(Modifier.fillMaxSize().background(c.void)) {
-        Box(Modifier.fillMaxWidth().then(if(full||pip)Modifier.weight(1f)else Modifier.aspectRatio(if(video.kind=="AUDIO")1f else 16f/9)).background(Color.Black)
+        Box(Modifier.fillMaxWidth().onGloballyPositioned{coordinates->val rect=coordinates.boundsInWindow();val result=Rect(rect.left.toInt(),rect.top.toInt(),rect.right.toInt(),rect.bottom.toInt());if(result!=sourceRect)sourceRect=result}.then(if(full||pip)Modifier.weight(1f)else Modifier.aspectRatio(if(video.kind=="AUDIO" || state.audioOnly)1f else 16f/9)).background(Color.Black)
             .pointerInput(video.id){detectTapGestures(onTap={controls=!controls},onDoubleTap={offset->val delta=if(offset.x<size.width/2)-10000L else 10000L;playback.skip(delta);gestureText=if(delta>0)"+10 s"else"−10 s"},onLongPress={playback.speed(2f);gestureText="2×"},onPress={val old=playback.state.value.speed;tryAwaitRelease();playback.speed(old)})}
             .pointerInput(video.id){var left=false;var delta=0f;detectVerticalDragGestures(onDragStart={left=it.x<size.width/2;delta=0f},onVerticalDrag={change,amount->change.consume();delta-=amount/size.height;if(left){activity?.window?.let{window->val attrs=window.attributes;attrs.screenBrightness=((if(attrs.screenBrightness<0).5f else attrs.screenBrightness)-amount/size.height).coerceIn(.01f,1f);window.attributes=attrs}}else if(kotlin.math.abs(delta)>.04f){audio.adjustStreamVolume(AudioManager.STREAM_MUSIC,if(delta>0)AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,0);delta=0f}})}
             .pointerInput(video.id){detectTransformGestures{_,_,zoom,_->if(zoom>1.03f)fill=true else if(zoom<.97f)fill=false}}
         ) {
-            if(video.kind=="AUDIO") {AsyncImage(video.thumbnailPath,null,Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Crop);AccretionRing(if(state.duration>0)state.position.toFloat()/state.duration else 0f,100.dp,modifier=Modifier.align(Alignment.Center))}
+            if(video.kind=="AUDIO" || state.audioOnly) {AsyncImage(video.thumbnailPath,null,Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Crop);AccretionRing(if(state.duration>0)state.position.toFloat()/state.duration else 0f,100.dp,modifier=Modifier.align(Alignment.Center))}
             else AndroidView(factory={PlayerView(it).apply{useController=false;player=playback.controller}},modifier=Modifier.fillMaxSize(),update={it.player=playback.controller;it.resizeMode=if(fill)AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT})
             if(state.buffering)AccretionRing(0f,64.dp,"indeterminate",Modifier.align(Alignment.Center))
             if(gestureText.isNotBlank())Tag(gestureText)
@@ -57,7 +67,7 @@ import kotlinx.coroutines.delay
         if(!full && !pip)Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
             Text(video.title,color=c.text,style=SingularityTheme.type.title)
             Text("${video.channelName} · ${Formatters.bytes(video.fileSizeBytes)}",color=c.low,style=SingularityTheme.type.caption)
-            Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){SingularityButton(stringResource(R.string.share),{share(context,listOf(video))},variant="secondary");SingularityButton(stringResource(R.string.open_youtube),{external(context,"https://www.youtube.com/watch?v=${video.ytId}")},variant="secondary");SingularityButton(stringResource(R.string.delete),{onDelete(video);onBack()},variant="tertiary")}
+            Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){SingularityButton(stringResource(R.string.share),{share(context,listOf(video))},variant="secondary");SingularityButton(stringResource(R.string.audio_only),{playback.setAudioOnly(!state.audioOnly)},variant="secondary");SingularityButton(stringResource(R.string.open_youtube),{external(context,"https://www.youtube.com/watch?v=${video.ytId}")},variant="secondary");SingularityButton(stringResource(R.string.delete),{onDelete(video);onBack()},variant="tertiary")}
             SettingsRow(Icons.Rounded.AccountCircle,video.channelName,onClick={onChannel(video.channelId)})
             if(video.description.isNotBlank())GlassCard{Text(video.description,color=c.mid,style=SingularityTheme.type.body,maxLines=if(expanded)Int.MAX_VALUE else 3);SingularityButton(stringResource(if(expanded)R.string.show_less else R.string.show_more),{expanded=!expanded},variant="tertiary")}
             SettingsRow(Icons.Rounded.PlayCircle,stringResource(R.string.autoplay),trailing={SingularitySwitch(settings.autoplayNext,onAutoplay,stringResource(R.string.autoplay))})
