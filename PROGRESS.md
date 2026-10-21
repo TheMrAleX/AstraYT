@@ -44,3 +44,12 @@ Las casillas de las siete fases permanecen abiertas porque representan la especi
 - El comprobador de actualizaciones selecciona la APK según `Build.SUPPORTED_ABIS`; incluye cinco pruebas para ARM64, ARMv7, x86, APK universal antigua y checksums.
 - Publicación de adjuntos mediante `publish-prebuilt.yml` desde una rama temporal: el proxy bloquea `uploads.github.com`. El runner verifica checksums antes y después de subir y publica el borrador con la firma local intacta.
 - Validación de 0.0.1 completada: `testReleaseUnitTest assembleRelease lintRelease`, 21 pruebas aprobadas, 0 fallos/omisiones y lint sin errores. Ambos APKs verificados con apksigner y ELF (AArch64/ARM), misma firma RSA-4096.
+
+## Publicación completada en GitHub
+- Código subido a `TheMrAleX/AstraYT`, rama `main`, tag `v0.0.1`.
+- Release publicada: https://github.com/TheMrAleX/AstraYT/releases/tag/v0.0.1
+- Incluye APK ARM64/ARMv8 y ARMv7 con SHA-256, ambas versión 0.0.1 y firmadas con la clave local original.
+- Workflow `Publish verified APKs` completado correctamente; archivos descargados y verificados por el runner. Digests publicados por GitHub coinciden con los cuatro archivos locales.
+- La subida inicial del borrador rechazó un commit abreviado; se corrigió con el SHA completo y la reejecución terminó correctamente.
+- La rama temporal de artefactos se retira tras la publicación para mantener el trabajo futuro en main.
+- Las menciones anteriores a commits solo locales o a la primera publicación pendiente son históricas. La restauración en una tarea nueva y las pruebas reales en Android/YouTube siguen sin verificarse.
