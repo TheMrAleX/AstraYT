@@ -4,7 +4,16 @@ on:
     branches: [main]
     paths-ignore: ['**/*.md']
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versión semántica, sin v; vacío incrementa el parche publicado'
+        type: string
+        required: false
   workflow_call:
+    inputs:
+      version:
+        type: string
+        required: false
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -20,6 +29,39 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+      - name: Resolve release version
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LATEST_TAG
+          LATEST_TAG=$(gh release list --limit 1 --exclude-drafts --exclude-pre-releases --json tagName --jq '.[0].tagName // "v0.0.0"')
+          python3 - <<'PYTHON'
+          import os, re
+          requested = os.environ.get('REQUESTED_VERSION', '').strip()
+          latest = os.environ['LATEST_TAG'].removeprefix('v')
+          if not re.fullmatch(r'\d+\.\d+\.\d+', latest):
+              raise SystemExit('La última release no tiene una versión semántica válida')
+          previous = tuple(map(int, latest.split('.')))
+          if requested:
+              if not re.fullmatch(r'\d+\.\d+\.\d+', requested):
+                  raise SystemExit('Versión inválida: se espera major.minor.patch')
+              parts = tuple(map(int, requested.split('.')))
+              if parts <= previous:
+                  raise SystemExit('La versión debe ser mayor que la última release publicada')
+          else:
+              parts = (*previous[:2], previous[2] + 1)
+          major, minor, patch = parts
+          code = major * 1_000_000 + minor * 10_000 + patch
+          if minor >= 100 or patch >= 10_000 or not 1 <= code <= 2_100_000_000:
+              raise SystemExit('Versión fuera del rango de versionCode admitido')
+          version = '.'.join(map(str, parts))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\ncode={code}\n')
+          PYTHON
       - name: Prepare signing
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -49,14 +91,21 @@ jobs:
             echo "KEY_PASSWORD=$ENTRY_PASSWORD"
           } >> "$GITHUB_ENV"
       - name: Test and assemble release
-        run: ./gradlew testReleaseUnitTest assembleRelease -PappVersionCode=${{ github.run_number }} -PappVersionName=1.0.${{ github.run_number }}
-      - name: Publish APK and checksum
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_CODE: ${{ steps.release.outputs.code }}
+        run: ./gradlew testReleaseUnitTest assembleRelease -PappVersionCode="$RELEASE_CODE" -PappVersionName="$RELEASE_VERSION"
+      - name: Publish ARM64 and ARMv7 APKs
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_NUMBER: ${{ github.run_number }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          apk="AstraYT-v1.0.$RUN_NUMBER.apk"
-          cp app/build/outputs/apk/release/app-release.apk "$apk"
-          sha256sum "$apk" > "$apk.sha256"
-          gh release create "v1.0.$RUN_NUMBER" "$apk" "$apk.sha256" --title "AstraYT v1.0.$RUN_NUMBER" --generate-notes --latest
+          assets=()
+          for abi in arm64-v8a armeabi-v7a; do
+            apk="AstraYT-v$RELEASE_VERSION-$abi.apk"
+            cp "app/build/outputs/apk/release/app-$abi-release.apk" "$apk"
+            sha256sum "$apk" > "$apk.sha256"
+            assets+=("$apk" "$apk.sha256")
+          done
+          gh release create "v$RELEASE_VERSION" "${assets[@]}" --target "$GITHUB_SHA" --title "AstraYT $RELEASE_VERSION" --generate-notes --latest

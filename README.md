@@ -7,8 +7,8 @@ GitHub Actions usa cuatro secretos: `KEYSTORE_BASE64` (archivo codificado),
 `KEYSTORE_PASSWORD`, `KEY_ALIAS` y `KEY_PASSWORD`.
 Conserva la clave: Android exige la misma firma para instalar actualizaciones.
 Sin secretos, CI genera una firma temporal y advierte que no permite actualizar.
-Un push a main, la ejecución manual o workflow_call generan la release.
-Los artefactos se llaman `AstraYT-v1.0.N.apk` y llevan checksum SHA-256.
+Un push a main genera la siguiente release; la ejecución manual acepta una versión.
+APKs: `AstraYT-vVERSION-arm64-v8a.apk` y `AstraYT-vVERSION-armeabi-v7a.apk`, con SHA-256.
 El extractor se comprueba semanalmente y solo se actualiza si compila.
 GPL-3.0; incluye NewPipeExtractor. Consulta LICENSE.
 Usa contenido propio, libre o con permiso y respeta los términos de YouTube.

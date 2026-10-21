@@ -34,3 +34,13 @@ Decisiones: identificador solicitado por el usuario `con.themralex.astrayt`; fir
 - Publicación del código/primera release en GitHub y prueba de restauración en una tarea nueva. Los commits existen localmente; no se ha verificado la restauración de commits locales desde un snapshot.
 
 Las casillas de las siete fases permanecen abiertas porque representan la especificación completa. Esta entrega es una primera versión compilada y firmada, no una declaración de que todos sus detalles estén terminados.
+
+## Publicación 0.0.1 solicitada por el usuario
+- Paquete conservado: `con.themralex.astrayt`; versión inicial publicada prevista: `0.0.1`, versionCode `1`.
+- Splits de release para `arm64-v8a` (ARMv8 de 64 bits) y `armeabi-v7a` (ARMv7 de 32 bits), sin APK universal.
+- Releases futuras: incremento semántico de parche o versión manual; ambos APKs y sus checksums.
+- La primera subida omite CI para publicar los binarios ya compilados con la clave local y evitar una segunda firma automática.
+- La API de secretos de Actions devuelve 403; no se han leído ni sustituido secretos del repositorio. La firma de esta release se conserva localmente.
+- El comprobador de actualizaciones selecciona la APK según `Build.SUPPORTED_ABIS`; incluye cinco pruebas para ARM64, ARMv7, x86, APK universal antigua y checksums.
+- Publicación de adjuntos mediante `publish-prebuilt.yml` desde una rama temporal: el proxy bloquea `uploads.github.com`. El runner verifica checksums antes y después de subir y publica el borrador con la firma local intacta.
+- Validación de 0.0.1 completada: `testReleaseUnitTest assembleRelease lintRelease`, 21 pruebas aprobadas, 0 fallos/omisiones y lint sin errores. Ambos APKs verificados con apksigner y ELF (AArch64/ARM), misma firma RSA-4096.

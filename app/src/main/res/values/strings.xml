@@ -147,4 +147,5 @@
 <plurals name="download_summary"><item quantity="one">%d descarga</item><item quantity="other">%d descargas</item></plurals>
 <plurals name="library_summary"><item quantity="one">%1$d archivo · %2$s</item><item quantity="other">%1$d archivos · %2$s</item></plurals>
 <plurals name="playlist_download"><item quantity="one">Descargar %d vídeo</item><item quantity="other">Descargar %d vídeos</item></plurals>
+<string name="no_compatible_update">Hay una actualización, pero no incluye una APK compatible con este dispositivo.</string>
 </resources>

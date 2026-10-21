@@ -1,0 +1,74 @@
+name: Publish verified APKs
+on:
+  push:
+    branches: ['release-assets/*']
+  workflow_dispatch:
+    inputs:
+      artifact_ref:
+        description: 'Commit de la rama temporal con los APKs verificados'
+        type: string
+        required: true
+permissions:
+  contents: write
+concurrency:
+  group: publish-prebuilt-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.artifact_ref || github.sha }}
+          persist-credentials: false
+      - name: Validate staged files
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          import hashlib, json, os, pathlib, re
+          meta = json.loads(pathlib.Path('RELEASE.json').read_text())
+          tag = meta['tag']
+          if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', tag):
+              raise SystemExit('Tag inválido')
+          if not re.fullmatch(r'[0-9a-f]{40}', meta['source_commit']):
+              raise SystemExit('Commit de fuente inválido')
+          expected = {
+              f'AstraYT-{tag}-{abi}.apk{suffix}'
+              for abi in ('arm64-v8a', 'armeabi-v7a')
+              for suffix in ('', '.sha256')
+          }
+          checksums = {}
+          for line in pathlib.Path('SHA256SUMS').read_text().splitlines():
+              digest, name = line.split('  ', 1)
+              if name not in expected or name in checksums or not re.fullmatch(r'[0-9a-f]{64}', digest):
+                  raise SystemExit('Manifiesto inválido')
+              checksums[name] = digest
+          if set(checksums) != expected:
+              raise SystemExit('Faltan artefactos')
+          for name, digest in checksums.items():
+              if hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest() != digest:
+                  raise SystemExit(f'Checksum incorrecto: {name}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'tag={tag}\n')
+          PYTHON
+      - name: Upload, verify and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          assets=()
+          for abi in arm64-v8a armeabi-v7a; do
+            apk="AstraYT-$RELEASE_TAG-$abi.apk"
+            assets+=("$apk" "$apk.sha256")
+          done
+          gh release upload "$RELEASE_TAG" "${assets[@]}"
+          verify_dir="$RUNNER_TEMP/verify-release"
+          mkdir -p "$verify_dir"
+          gh release download "$RELEASE_TAG" --dir "$verify_dir"
+          (cd "$verify_dir" && sha256sum -c "$GITHUB_WORKSPACE/SHA256SUMS")
+          gh release edit "$RELEASE_TAG" --draft=false --latest

@@ -5,6 +5,8 @@ import androidx.compose.runtime.Immutable
 import con.themralex.astrayt.R
 import con.themralex.astrayt.BuildConfig
 import con.themralex.astrayt.core.util.Errors
+import con.themralex.astrayt.core.util.ReleaseAsset
+import con.themralex.astrayt.core.util.ReleaseAssetSelector
 import con.themralex.astrayt.data.db.*
 import con.themralex.astrayt.data.prefs.*
 import con.themralex.astrayt.download.*
@@ -127,9 +129,27 @@ abstract class ScreenModel:ViewModel() {
     fun change(transform:(Settings)->Settings)=work{prefs.update(transform)}
     fun forget(id:String)=work{dao.forget(id)}
     fun checkUpdate()=work {
-        val url=withContext(Dispatchers.IO){client.newCall(Request.Builder().url("https://api.github.com/repos/${BuildConfig.GITHUB_REPOSITORY}/releases/latest").header("Accept","application/vnd.github+json").build()).execute().use{response->if(response.code==404)return@use null;if(!response.isSuccessful)throw java.io.IOException("HTTP ${response.code}");val root=Json.parseToJsonElement(response.body.string()).jsonObject;val remote=root["tag_name"]?.jsonPrimitive?.content.orEmpty().removePrefix("v").split('.').mapNotNull{it.toIntOrNull()};val local=BuildConfig.VERSION_NAME.split('.').mapNotNull{it.toIntOrNull()};val newer=(0 until maxOf(remote.size,local.size)).firstOrNull{remote.getOrElse(it){0}!=local.getOrElse(it){0}}?.let{remote.getOrElse(it){0}>local.getOrElse(it){0}} ?: false;if(newer)root["assets"]?.jsonArray?.firstOrNull{it.jsonObject["name"]?.jsonPrimitive?.content?.endsWith(".apk")==true}?.jsonObject?.get("browser_download_url")?.jsonPrimitive?.content else null}}
-        _update.value=url;prefs.update{it.copy(lastUpdateCheck=System.currentTimeMillis())};effects.send(if(url==null)R.string.up_to_date else R.string.update_available)
+        val check=withContext(Dispatchers.IO) {
+            client.newCall(Request.Builder().url("https://api.github.com/repos/${BuildConfig.GITHUB_REPOSITORY}/releases/latest").header("Accept","application/vnd.github+json").build()).execute().use { response->
+                if(response.code==404)return@use false to null
+                if(!response.isSuccessful)throw java.io.IOException("HTTP ${response.code}")
+                val root=Json.parseToJsonElement(response.body.string()).jsonObject
+                val remote=root["tag_name"]?.jsonPrimitive?.content.orEmpty().removePrefix("v").split('.').mapNotNull{it.toIntOrNull()}
+                val local=BuildConfig.VERSION_NAME.split('.').mapNotNull{it.toIntOrNull()}
+                val newer=(0 until maxOf(remote.size,local.size)).firstOrNull{remote.getOrElse(it){0}!=local.getOrElse(it){0}}?.let{remote.getOrElse(it){0}>local.getOrElse(it){0}} ?: false
+                val assets=root["assets"]?.jsonArray.orEmpty().mapNotNull { entry->
+                    val name=entry.jsonObject["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                    val url=entry.jsonObject["browser_download_url"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                    ReleaseAsset(name,url)
+                }
+                newer to if(newer)ReleaseAssetSelector.select(assets,android.os.Build.SUPPORTED_ABIS.toList())?.url else null
+            }
+        }
+        _update.value=check.second
+        prefs.update{it.copy(lastUpdateCheck=System.currentTimeMillis())}
+        effects.send(when { !check.first->R.string.up_to_date;check.second==null->R.string.no_compatible_update;else->R.string.update_available })
     }
+
 }
 @HiltViewModel class MainModel @Inject constructor(val playback:Playback,private val downloads:DownloadManager,private val dao:AstraDao):ScreenModel() {
     init{work{downloads.initialize()}}
