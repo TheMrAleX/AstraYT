@@ -39,10 +39,14 @@ import javax.inject.*
                 for(attempt in 0..1) {
                     try {
                         result=extractionAttempt { runInterruptible {
-                            try { extract(videoId) } catch(e:Exception) {
+                            val primary=try { extract(videoId) } catch(e:Exception) {
                                 if(Errors.code(e) !in setOf("NO_STREAMS","EXTRACTOR"))throw e
-                                InnertubeFallback(client).details(videoId,(e as? NoStreams)?.metadata)
+                                return@runInterruptible InnertubeFallback(client).details(videoId,(e as? NoStreams)?.metadata)
                             }
+                            if(StreamRecovery.needsAlternate(primary))try {
+                                StreamRecovery.merge(primary,InnertubeFallback(client).details(videoId,primary))
+                            }catch(e:InterruptedException){throw e}catch(e:CancellationException){throw e}catch(_:Exception){primary}
+                            else primary
                         } }
                         break
                     } catch(e:CancellationException) { throw e }
@@ -53,7 +57,7 @@ import javax.inject.*
                     }
                 }
                 val details=checkNotNull(result)
-                mutex.withLock {cache[videoId]=details}
+                if(!StreamRecovery.needsAlternate(details))mutex.withLock {cache[videoId]=details}
                 details
             }
         }

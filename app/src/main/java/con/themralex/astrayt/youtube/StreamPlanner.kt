@@ -2,11 +2,21 @@ package con.themralex.astrayt.youtube
 object StreamPlanner {
     val commonHeights=listOf(144,240,360,480,720,1080,1440,2160)
     fun qualityLabel(height:Int)=when(height){1440->"2K · 1440p";2160->"4K · 2160p";else->"${height}p"}
-    fun options(details: VideoDetails,track: AudioTrackOption?,audioOnly: Boolean=false):List<QualityOption> {
+    fun options(details: VideoDetails,track: AudioTrackOption?,audioOnly: Boolean=false,pinnedAudioId:String?=null):List<QualityOption> {
         fun bytes(stream: MediaStream?)=stream?.let { if(it.bytes>0)it.bytes else if(it.bitrate>0)it.bitrate.toLong()*details.durationMs/8_000 else 0 } ?: 0
         if(audioOnly) {
+            if(pinnedAudioId!=null){
+                val source=details.videos.firstOrNull{it.id==pinnedAudioId && !it.videoOnly && it.format=="mp4"}
+                if(source!=null)return options(details.copy(videos=listOf(source)),null,true)
+            }
             val mp4=track?.bestStreamForMp4
-            val audio=mp4 ?: track?.bestStreamForWebm ?: return emptyList()
+            val audio=mp4 ?: track?.bestStreamForWebm
+            if(audio==null){
+                // Progressive MP4 already contains AAC. Extract that track without re-encoding.
+                if(track!=null && track.type!="ORIGINAL" && !track.default)return emptyList()
+                val source=details.videos.filter{!it.videoOnly && it.format=="mp4"}.minByOrNull{bytes(it)} ?: return emptyList()
+                return listOf(QualityOption("M4A",null,source,"m4a",0,bytes(source),extractAudio=true))
+            }
             val container=if(audio==mp4)"m4a"else"webm"
             return listOf(QualityOption(if(container=="m4a")"M4A"else"WebM Opus",null,audio,container,0,bytes(audio)))
         }

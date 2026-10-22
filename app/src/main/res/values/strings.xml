@@ -151,7 +151,7 @@
     <string name="pending_video">Vídeo pendiente de analizar</string>
     <string name="quality_fallback">Se descargará la mejor calidad disponible hasta la elegida.</string>
     <string name="resolve_in_queue">Puedes añadirlo ya. La información y los formatos se completarán en la cola.</string>
-    <string name="formats_unavailable">YouTube no ha entregado formatos compatibles. La cola volverá a intentarlo; si falla, mostrará el motivo y podrás reintentar.</string>
+    <string name="formats_unavailable">No hay formatos compatibles para esta opción. Vuelve a analizar el enlace para intentarlo de nuevo.</string>
     <string name="capture_kicker">FUERA DE LÍNEA</string>
     <string name="video_link">Enlace de YouTube</string>
     <string name="new_capture">Nueva captura</string>
@@ -197,4 +197,6 @@
     <string name="player_track">Pista %1$d</string>
     <string name="error_subtitle_format">Selecciona subtítulos SRT, VTT, TTML, ASS o SSA.</string>
     <string name="error_subtitle_size">El archivo de subtítulos supera los 10 MB.</string>
+    <string name="quality_available">Este vídeo solo ofrece hasta %1$dp.</string>
+    <string name="embedded_audio">Se guardará el audio incluido en el vídeo, sin recodificar.</string>
 </resources>

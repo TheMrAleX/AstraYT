@@ -25,4 +25,11 @@ class InnertubeFallbackTest {
         assertFalse(details.videos.single().videoOnly)
         assertNull(StreamPlanner.options(details,null).single().audio)
     }
+    @Test fun oneBrokenAdaptiveUrlDoesNotDiscardOtherAudioAndVideoFormats() {
+        val data=response("""[{"itag":137,"url":"https://example.test/bad","mimeType":"video/mp4; codecs=\"avc1\"","height":1080},{"itag":136,"url":"https://example.test/good","mimeType":"video/mp4; codecs=\"avc1\"","height":720},{"itag":140,"url":"https://example.test/audio","mimeType":"audio/mp4; codecs=\"mp4a.40.2\""}]""")
+        val details=InnertubeFallback.parse("abcdefghijk",data,null){if(it.endsWith("bad"))throw IllegalArgumentException("Unusable signature") else it}
+        assertEquals(720,StreamPlanner.options(details,details.tracks.single()).single().height)
+        assertFalse(StreamPlanner.options(details,details.tracks.single(),true).single().extractAudio)
+    }
+
 }

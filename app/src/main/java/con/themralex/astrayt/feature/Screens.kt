@@ -86,14 +86,15 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                 GlassCard {
                     Text(stringResource(R.string.options),color=c.text,style=SingularityTheme.type.title)
                     SegmentedToggle(listOf(stringResource(R.string.video),stringResource(R.string.audio)),if(state.audioOnly)1 else 0,{model.kind(it==1)})
-                    if(state.audioOnly)Tag(stringResource(R.string.best_audio)) else {
+                    if(state.audioOnly)Tag(selected?.label ?: stringResource(R.string.best_audio)) else {
                         SectionHeader(stringResource(R.string.quality))
-                        QualityGrid(state.height,model::height)
+                        QualityGrid(selected?.height ?: state.height,model::height,if(details!=null)choices.map{it.height} else StreamPlanner.commonHeights)
                         Text(stringResource(R.string.quality_fallback),color=c.mid,style=SingularityTheme.type.caption)
                     }
                     if(details!=null && choices.isEmpty())Text(stringResource(R.string.formats_unavailable),color=c.warning,style=SingularityTheme.type.caption)
                     SectionHeader(stringResource(R.string.audio))
-                    if(details==null || details.tracks.isEmpty())Text(stringResource(R.string.resolve_in_queue),color=c.mid,style=SingularityTheme.type.body)
+                    if(state.audioOnly && selected?.extractAudio==true)Text(stringResource(R.string.embedded_audio),color=c.mid,style=SingularityTheme.type.body)
+                    else if(details==null || details.tracks.isEmpty())Text(stringResource(R.string.resolve_in_queue),color=c.mid,style=SingularityTheme.type.body)
                     else if(state.prompt){Text(stringResource(R.string.audio_tracks),color=c.text,style=SingularityTheme.type.small);Text(stringResource(R.string.choose_audio),color=c.mid,style=SingularityTheme.type.body)
                         AudioTrackSelector.sorted(details.tracks,settings.preferredAudioLanguage).forEach { t->val locale=Locale.forLanguageTag(t.locale);LanguageRow(locale.getDisplayLanguage(locale).ifBlank{t.displayName.ifBlank{unknownLanguage}},locale.getDisplayCountry(locale)+" · "+stringResource(when(t.type){"DUBBED"->R.string.dubbed;"DESCRIPTIVE"->R.string.descriptive;else->R.string.original}),t.locale,state.trackId==t.id,{model.track(t.id)})}
                         SettingsRow(Icons.Rounded.Bookmark,stringResource(R.string.remember_channel),trailing={SingularitySwitch(state.remember,model::remember,stringResource(R.string.remember_channel))})
@@ -113,10 +114,10 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
         }
         if(videoLink || state.playlist!=null)Column(Modifier.fillMaxWidth().background(c.void).padding(top=12.dp,bottom=10.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
-                Text(if(state.audioOnly)stringResource(R.string.audio)else if(state.height==Int.MAX_VALUE)stringResource(R.string.max)else StreamPlanner.qualityLabel(state.height),color=c.text,style=SingularityTheme.type.label)
+                Text(if(state.audioOnly)stringResource(R.string.audio)else if(state.height==Int.MAX_VALUE && selected==null)stringResource(R.string.max)else StreamPlanner.qualityLabel(selected?.height ?: state.height),color=c.text,style=SingularityTheme.type.label)
                 Text(selected?.estimatedBytes?.takeIf{it>0}?.let{Formatters.bytes(it)} ?: stringResource(R.string.unknown_size),color=c.mid,style=SingularityTheme.type.caption)
             }
-            SingularityButton(if(state.playlist!=null)pluralStringResource(R.plurals.playlist_download,state.selected.size,state.selected.size)else stringResource(R.string.add_to_queue),{enqueue()},Modifier.fillMaxWidth(),enabled=!state.busy && (state.playlist==null || state.selected.isNotEmpty()),loading=state.busy)
+            SingularityButton(if(state.playlist!=null)pluralStringResource(R.plurals.playlist_download,state.selected.size,state.selected.size)else stringResource(R.string.add_to_queue),{enqueue()},Modifier.fillMaxWidth(),enabled=!state.busy && (details==null || selected!=null) && (state.playlist==null || state.selected.isNotEmpty()),loading=state.busy)
         }
     }
 }
@@ -146,11 +147,12 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                     Row(verticalAlignment=Alignment.Top,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                         Box(Modifier.width(104.dp).aspectRatio(16f/9).clip(RoundedCornerShape(10.dp)).background(c.high)) {
                             coil3.compose.AsyncImage(row.thumbnailPath,null,Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
-                            Text(if(options?.audioOnly==true)stringResource(R.string.audio)else "${options?.height ?: 1080}p",color=Color.White,style=SingularityTheme.type.caption,modifier=Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color.Black.copy(alpha=.8f),RoundedCornerShape(4.dp)).padding(horizontal=4.dp,vertical=2.dp))
+                            Text(if(options?.audioOnly==true)stringResource(R.string.audio)else if(options?.height==Int.MAX_VALUE)stringResource(R.string.max)else "${options?.height ?: 1080}p",color=Color.White,style=SingularityTheme.type.caption,modifier=Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color.Black.copy(alpha=.8f),RoundedCornerShape(4.dp)).padding(horizontal=4.dp,vertical=2.dp))
                         }
                         Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(5.dp)) {
                             Text(row.title,color=c.text,style=SingularityTheme.type.strong,maxLines=2,overflow=TextOverflow.Ellipsis)
                             if(row.channelName.isNotBlank())Text(row.channelName,color=c.low,style=SingularityTheme.type.caption,maxLines=1,overflow=TextOverflow.Ellipsis)
+                            if(options!=null && options.planPinned && !options.audioOnly && options.requestedHeight!=null && options.requestedHeight!=Int.MAX_VALUE && options.height<options.requestedHeight)Text(stringResource(R.string.quality_available,options.height),color=c.warning,style=SingularityTheme.type.caption)
                         }
                         SingularityIcon(Icons.Rounded.MoreVert,stringResource(R.string.options),{menu=row})
                     }
@@ -340,10 +342,10 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
     }
 }
 @OptIn(ExperimentalLayoutApi::class)
-@Composable private fun QualityGrid(selected:Int,onSelect:(Int)->Unit) {
+@Composable private fun QualityGrid(selected:Int,onSelect:(Int)->Unit,heights:List<Int> = StreamPlanner.commonHeights) {
     val columns=if(LocalDensity.current.fontScale>1.3f)2 else 4
     FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp),maxItemsInEachRow=columns) {
-        StreamPlanner.commonHeights.forEach{height->QualityChip(when(height){1440->"2K";2160->"4K";else->"${height}p"},"",selected==height,{onSelect(height)},Modifier.weight(1f))}
+        heights.distinct().sorted().forEach{height->QualityChip(when(height){1440->"2K";2160->"4K";else->"${height}p"},"",selected==height,{onSelect(height)},Modifier.weight(1f))}
     }
     if(selected==Int.MAX_VALUE)Tag(stringResource(R.string.max))
 }

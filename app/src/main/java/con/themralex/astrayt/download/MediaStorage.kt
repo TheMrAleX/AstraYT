@@ -26,6 +26,7 @@ import javax.inject.*
         if(!committed)journal.delete()
         File(context.cacheDir,"mux-${row.id}.mp4").delete()
         File(context.cacheDir,"mux-${row.id}.webm").delete()
+        File(context.cacheDir,"mux-${row.id}.m4a").delete()
         committed
     }
     suspend fun finish(row:DownloadEntity,options:DownloadOptions,details:VideoDetails,plan:QualityOption,video:File?,audio:File?,requestedCuts:List<Cut> = emptyList())=withContext(Dispatchers.IO) {
@@ -47,11 +48,11 @@ import javax.inject.*
             val art=File(context.filesDir,"art").apply{mkdirs()}
             val thumbTask=async {saveArt(details.thumbnail,File(art,"${row.ytId}.webp"),720)}
             val avatarTask=async {saveArt(details.channelAvatar,File(art,"channel-${details.channelId.hashCode()}.webp"),192)}
-            if(cuts.isEmpty() && (audioOnly || plan.audio==null)){copyToStore(if(audioOnly)audio ?: throw IOException("Missing audio")else video ?: throw IOException("Missing video"),uri,"w")}
+            if(cuts.isEmpty() && ((audioOnly && !plan.extractAudio) || (!audioOnly && plan.audio==null))){copyToStore(if(audioOnly)audio ?: throw IOException("Missing audio")else video ?: throw IOException("Missing video"),uri,"w")}
             else {
-                try {context.contentResolver.openFileDescriptor(uri,"rw")!!.use{fd->mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,fd.fileDescriptor,null,cuts)}}
+                try {context.contentResolver.openFileDescriptor(uri,"rw")!!.use{fd->mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,fd.fileDescriptor,null,cuts,audioOnly)}}
                 catch(e:kotlinx.coroutines.CancellationException){throw e}
-                catch(e:Exception){val temp=File(context.cacheDir,"mux-${row.id}.${plan.container}");try{mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,null,temp.absolutePath,cuts);copyToStore(temp,uri,"wt")}finally{temp.delete()}}
+                catch(e:Exception){val temp=File(context.cacheDir,"mux-${row.id}.${plan.container}");try{mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,null,temp.absolutePath,cuts,audioOnly);copyToStore(temp,uri,"wt")}finally{temp.delete()}}
             }
             withContext(NonCancellable){
             if(Build.VERSION.SDK_INT>=29)context.contentResolver.update(uri,ContentValues().apply{put(MediaStore.MediaColumns.IS_PENDING,0)},null,null)
@@ -91,7 +92,7 @@ import javax.inject.*
             },duration)
         }finally{extractor.release()}
     }
-    private suspend fun mux(video:File,audio:File?,container:String,fd:FileDescriptor?,path:String?,cuts:List<Cut>) {
+    private suspend fun mux(video:File,audio:File?,container:String,fd:FileDescriptor?,path:String?,cuts:List<Cut>,audioOnly:Boolean=false) {
         val format=if(container=="webm")MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
         val mux=if(fd!=null)MediaMuxer(fd,format)else MediaMuxer(path!!,format)
         val extractors=mutableListOf<MediaExtractor>();var started=false
@@ -104,7 +105,7 @@ import javax.inject.*
                 val probe=MediaExtractor()
                 val indices=try{probe.setDataSource(file.absolutePath);(0 until probe.trackCount).filter { index->
                     val mime=probe.getTrackFormat(index).getString(MediaFormat.KEY_MIME).orEmpty()
-                    if(audio==null)mime.startsWith("video/")||mime.startsWith("audio/") else mime.startsWith(if(source==0)"video/"else"audio/")
+                    if(audioOnly)mime.startsWith("audio/") else if(audio==null)mime.startsWith("video/")||mime.startsWith("audio/") else mime.startsWith(if(source==0)"video/"else"audio/")
                 }}finally{probe.release()}
                 indices.forEach { index->
                     val ex=MediaExtractor();extractors.add(ex);ex.setDataSource(file.absolutePath);ex.selectTrack(index)

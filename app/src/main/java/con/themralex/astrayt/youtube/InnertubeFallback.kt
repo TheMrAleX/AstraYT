@@ -43,7 +43,7 @@ internal class InnertubeFallback(private val client:OkHttpClient) {
                 val f=element as? JsonObject ?: continue
                 if(f["drmFamilies"]!=null || f["drmTrackType"]!=null)continue
                 val raw=f.text("url");if(raw.isBlank())continue
-                val url=decode(raw)
+                val url=try{decode(raw)}catch(e:InterruptedException){throw e}catch(e:java.util.concurrent.CancellationException){throw e}catch(_:Exception){continue}
                 val mime=f.text("mimeType")
                 val codec=Regex("codecs=\"([^\"]+)\"").find(mime)?.groupValues?.get(1).orEmpty()
                 val isAudio=mime.startsWith("audio/")
