@@ -89,16 +89,33 @@ jobs:
         run: |
           set -euo pipefail
           source_commit=$(python3 -c 'import json; print(json.load(open("RELEASE.json"))["source_commit"])')
-          git cat-file -e "$source_commit^{commit}"
+          if ! git cat-file -e "$source_commit^{commit}"; then
+            echo "::error::No está disponible el commit fuente $source_commit en el checkout"
+            exit 1
+          fi
           if ! gh release view "$RELEASE_TAG" --json isDraft > "$RUNNER_TEMP/release-state.json"; then
             python3 - <<'PYTHON'
           import json, os, pathlib
           meta = json.loads(pathlib.Path('RELEASE.json').read_text())
           pathlib.Path(os.environ['RUNNER_TEMP'], 'release-notes.md').write_text(meta.get('notes', ''))
           PYTHON
-            gh release create "$RELEASE_TAG" --draft --target "$source_commit" --title "AstraYT ${RELEASE_TAG#v}" --notes-file "$RUNNER_TEMP/release-notes.md"
+            if ! gh release create "$RELEASE_TAG" --draft --target "$source_commit" --title "AstraYT ${RELEASE_TAG#v}" --notes-file "$RUNNER_TEMP/release-notes.md" 2> "$RUNNER_TEMP/release-error.txt"; then
+              python3 - <<'PYTHON'
+          import os, pathlib
+          message = pathlib.Path(os.environ['RUNNER_TEMP'], 'release-error.txt').read_text()
+          token = os.environ.get('GH_TOKEN', '')
+          if token:
+              message = message.replace(token, '[redacted]')
+          print('::error::' + message[:1500].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYTHON
+              exit 1
+            fi
           fi
-          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)
+          if [ "$draft" != true ]; then
+            echo "::error::La release $RELEASE_TAG no es un borrador: $draft"
+            exit 1
+          fi
       - name: Upload APKs
         env:
           GH_TOKEN: ${{ github.token }}
