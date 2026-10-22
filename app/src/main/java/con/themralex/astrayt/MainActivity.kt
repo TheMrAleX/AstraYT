@@ -71,8 +71,8 @@ import javax.inject.Inject
         VoidBackground {
             if(!prefs.onboardingDone)OnboardingScreen(settings)
             else {
-                val bottom=if(isPlayer||pip)0.dp else if(playing.video!=null)192.dp else 100.dp
-                Box(Modifier.fillMaxSize().then(if(pip)Modifier else Modifier.statusBarsPadding()).padding(bottom=bottom)) {
+                Column(Modifier.fillMaxSize().then(if(pip)Modifier else Modifier.statusBarsPadding()).imePadding()) {
+                Box(Modifier.weight(1f)) {
                     NavHost(navController=nav,startDestination=Capture,enterTransition={fadeIn()},exitTransition={fadeOut()}) {
                         composable<Capture>{Column{if(update!=null)SingularityButton(stringResource(R.string.update_available),{external(context,update!!)},Modifier.fillMaxWidth(),"secondary");Box(Modifier.weight(1f)){CaptureScreen(capture,prefs,all,{v->main.play(v,all);nav.navigate(PlayerRoute)})}}}
                         composable<Queue>{QueueScreen(queue)}
@@ -82,10 +82,11 @@ import javax.inject.Inject
                         composable<PlayerRoute>{PlayerScreen(main,playing,all,prefs,{value->settings.change{it.copy(autoplayNext=value)}},{id->nav.navigate(ChannelRoute(id))},{nav.popBackStack()},{video->main.close();library.delete(video)},pip)}
                     }
                 }
-                if(!isPlayer && !pip)Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                if(!isPlayer && !pip)Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     if(playing.video!=null)MiniPlayer(playing,{nav.navigate(PlayerRoute)},{main.toggle()},{main.close()},Modifier.fillMaxWidth())
                     val selected=when{destination?.hasRoute<Queue>()==true->1;destination?.hasRoute<Library>()==true||destination?.hasRoute<ChannelRoute>()==true->2;destination?.hasRoute<SettingsRoute>()==true->3;else->0}
                     FloatingNavBar(listOf(stringResource(R.string.capture),stringResource(R.string.queue),stringResource(R.string.library),stringResource(R.string.settings)),listOf(Icons.Rounded.AddLink,Icons.Rounded.Downloading,Icons.Rounded.VideoLibrary,Icons.Rounded.Settings),selected,{index->val route:Any=when(index){1->Queue;2->Library;3->SettingsRoute;else->Capture};nav.navigate(route){popUpTo<Capture>{saveState=true};launchSingleTop=true;restoreState=true}},Modifier.fillMaxWidth())
+                }
                 }
             }
             toast?.let{Toast(stringResource(it),Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start=16.dp,end=16.dp,bottom=if(isPlayer)24.dp else 104.dp))}

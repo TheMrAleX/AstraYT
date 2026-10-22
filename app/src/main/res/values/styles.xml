@@ -1,9 +1,9 @@
 <resources>
     <style name="Theme.AstraYT.Base" parent="android:style/Theme.Material.NoActionBar">
-        <item name="android:fontFamily">sans</item><item name="android:windowLightStatusBar">false</item><item name="android:windowActionModeOverlay">true</item><item name="android:colorAccent">#FF8A3D</item><item name="android:windowBackground">#040208</item>
+        <item name="android:fontFamily">sans</item><item name="android:windowLightStatusBar">false</item><item name="android:windowActionModeOverlay">true</item><item name="android:colorAccent">#EBA66C</item><item name="android:windowBackground">#08090B</item>
     </style>
     <style name="Theme.AstraYT" parent="Theme.AstraYT.Base" />
     <style name="Theme.AstraYT.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#040208</item><item name="windowSplashScreenAnimatedIcon">@drawable/ic_black_hole</item><item name="postSplashScreenTheme">@style/Theme.AstraYT</item>
+        <item name="windowSplashScreenBackground">#08090B</item><item name="windowSplashScreenAnimatedIcon">@drawable/ic_black_hole</item><item name="postSplashScreenTheme">@style/Theme.AstraYT</item>
     </style>
 </resources>

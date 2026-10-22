@@ -67,3 +67,10 @@ Las casillas de las siete fases permanecen abiertas porque representan la especi
 - Verificación de lógica: 30 pruebas aprobadas, sin fallos/omisiones; lintRelease sin errores. Compilación Kotlin de release correcta; empaquetado final y firma se verifican antes de publicar.
 - Verificación final 0.0.2: `testReleaseUnitTest assembleRelease lintRelease` completado; 30 pruebas aprobadas, 0 fallos/omisiones, lint sin errores. Ambos APKs RSA-4096 con certificado original, ELF ARM/AArch64, paquete con.themralex.astrayt, minSdk 26, versionCode 2.
 - Release publicada: https://github.com/TheMrAleX/AstraYT/releases/tag/v0.0.2 ; los cuatro digests de GitHub coinciden con los archivos locales. Workflow de publicación 39638812943 correcto. Descarga real en Android/YouTube y causa exacta de la extracción vacía de las capturas pendientes de verificar.
+
+## Rediseño 0.0.3 solicitado por el usuario
+- Dirección visual registrada en AGENTS.md: superficies carbón, tipografía con jerarquía, acento ámbar contenido y agujero negro de líneas finas; sustituye la receta visual anterior por petición expresa.
+- Rehechos tema, botones, tarjetas, campos, segmentos, selección de calidad, navegación, listas, ajustes, hojas y controles de reproducción. Captura con formulario compacto, cuadrícula 144p–4K y acción independiente; Órbita con miniaturas y progreso; biblioteca más limpia y minirreproductor compacto.
+- Navegación y minirreproductor ocupan su altura medida, sin márgenes inferiores fijos. Roles accesibles en pestañas/selecciones y opciones de audio/cola de 0.0.2 conservadas.
+- No se instala ni se ejecuta emulador: la revisión visual en Android corresponde al usuario. Se valida compilación release, pruebas existentes, lint y firma.
+- Validación 0.0.3: `testReleaseUnitTest assembleRelease lintRelease --offline` correcto, 30 pruebas sin fallos/omisiones, lint sin errores. Dos APKs ARM64/ARMv7 verificados con el certificado original, ABI correcta y versionCode 3.

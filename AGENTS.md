@@ -1,5 +1,8 @@
 # AGENTS.md — MASTER SPEC (read fully at the start of every run)
 
+## Visual direction override — user request, 2026-10-22
+The user explicitly rejected the original plastic/generic appearance and authorized redesigning every component and screen. This direction supersedes the exact visual prescriptions in sections 7–8, while preserving their functional requirements. Use near-black neutral surfaces, restrained warm amber accents (rose/blue remain optional), thin borders, consistent 10–20 dp corners, readable hierarchy, and a fine-line accretion disk. No rainbow buttons, ubiquitous stars, oversized pill navigation, or decorative icon tiles. Navigation labels stay visible; content measures its available space rather than reserving guessed navigation heights. Capture uses a quality grid and a separate enqueue action. Keep real data and functioning controls. The user runs the emulator; do not install or start one.
+
 ## 0. MISSION AND OPERATING RULES
 - Build a native Android app (Kotlin + Jetpack Compose) in THIS repository. App name = repository name (read it from the repo folder or git remote; prettify for the label). Package: com.<github_owner_lowercase>.<repo_lowercase_alphanumeric>.
 - Product: a YouTube video/audio downloader with a very fast, very beautiful offline library that feels like browsing YouTube. Visual identity: BLACK HOLE (event horizon, accretion disk, photon ring, gravitational lensing, starfield). Default UI language Spanish, secondary English.

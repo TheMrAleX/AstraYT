@@ -7,10 +7,10 @@
     <string name="clear">Borrar</string>
     <string name="options">Opciones</string>
     <string name="paste_hint">Pega un enlace de YouTube</string>
-    <string name="capture_title">Captura cualquier vídeo</string>
-    <string name="capture_body">Pega un enlace de YouTube y guárdalo en tu biblioteca.</string>
-    <string name="resolve">Obtener información</string>
-    <string name="paste">Pegar</string>
+    <string name="capture_title">Tus vídeos.\nEn tu universo.</string>
+    <string name="capture_body">Guarda vídeo o audio de YouTube y llévalo contigo.</string>
+    <string name="resolve">Analizar</string>
+    <string name="paste">Pegar enlace</string>
     <string name="retry">Reintentar</string>
     <string name="download">Descargar</string>
     <string name="video">Vídeo</string>
@@ -152,4 +152,14 @@
     <string name="quality_fallback">Se descargará la mejor calidad disponible hasta la elegida.</string>
     <string name="resolve_in_queue">Puedes añadirlo ya. La información y los formatos se completarán en la cola.</string>
     <string name="formats_unavailable">YouTube no ha entregado formatos compatibles. La cola volverá a intentarlo; si falla, mostrará el motivo y podrás reintentar.</string>
+    <string name="capture_kicker">FUERA DE LÍNEA</string>
+    <string name="video_link">Enlace de YouTube</string>
+    <string name="new_capture">Nueva captura</string>
+    <string name="add_to_queue">Añadir a la cola</string>
+    <string name="queue_subtitle">Todo lo que está en camino.</string>
+    <plurals name="queue_activity"><item quantity="one">%1$d activa · %2$s/s</item><item quantity="other">%1$d activas · %2$s/s</item></plurals>
+    <string name="settings_subtitle">A tu ritmo. A tu manera.</string>
+    <string name="accent_amber">Ámbar</string>
+    <string name="accent_rose">Rosa</string>
+    <string name="accent_blue">Azul</string>
 </resources>

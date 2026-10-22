@@ -28,7 +28,9 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.*
 import androidx.compose.ui.res.*
+import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.*
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -57,16 +59,26 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
     val storagePermission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){granted->if(granted)model.enqueue()}
     fun enqueue(){if(Build.VERSION.SDK_INT<=28 && ContextCompat.checkSelfPermission(context,Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED)storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)else model.enqueue()}
     val details=state.result;val track=details?.tracks?.firstOrNull{it.id==state.trackId};val choices=details?.let{StreamPlanner.options(it,track,state.audioOnly)}.orEmpty();val selected=StreamPlanner.default(choices,state.height);val videoLink=UrlParser.parse(state.url) is YoutubeLink.Video
-    Column(Modifier.fillMaxSize().padding(horizontal=16.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal=20.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-            Text(stringResource(R.string.app_name),style=SingularityTheme.type.headline.copy(brush=c.linear),modifier=Modifier.padding(vertical=12.dp))
-            Column(Modifier.fillMaxWidth(),horizontalAlignment=Alignment.CenterHorizontally){BlackHoleHero(if(details==null)220.dp else 96.dp);if(details==null){Text(stringResource(R.string.capture_title),color=c.text,style=SingularityTheme.type.display);Text(stringResource(R.string.capture_body),color=c.mid,style=SingularityTheme.type.body,modifier=Modifier.padding(top=12.dp,bottom=16.dp))}}
+            Row(Modifier.fillMaxWidth().padding(top=20.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically) {
+                Text(stringResource(R.string.app_name),color=c.text,style=SingularityTheme.type.title,modifier=Modifier.weight(1f))
+                Text(stringResource(R.string.capture_kicker),color=c.low,style=SingularityTheme.type.eyebrow)
+            }
+            if(state.url.isBlank()) {
+                Box(Modifier.fillMaxWidth().height(if(LocalConfiguration.current.screenHeightDp<700)100.dp else 148.dp),contentAlignment=Alignment.Center){BlackHoleHero(if(LocalConfiguration.current.screenHeightDp<700)128.dp else 180.dp)}
+                Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.capture_title),color=c.text,style=SingularityTheme.type.display)
+                    Text(stringResource(R.string.capture_body),color=c.mid,style=SingularityTheme.type.body)
+                }
+            } else Text(stringResource(R.string.new_capture),color=c.text,style=SingularityTheme.type.headline)
+            SectionHeader(stringResource(R.string.video_link))
             LinkField(state.url,{model.input(it)},stringResource(R.string.paste_hint),{model.input(state.url,true)},error=state.error?.let{stringResource(Errors.string(it))},loading=state.loading)
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                SingularityButton(stringResource(R.string.paste),{clipboard.getText()?.text?.let{model.input(it,true)}},variant="secondary")
-                if(state.url.isNotEmpty())SingularityButton(stringResource(if(state.error!=null)R.string.retry else R.string.resolve),{model.input(state.url,true)},Modifier.weight(1f),enabled=!state.loading)
+                SingularityButton(stringResource(R.string.paste),{clipboard.getText()?.text?.let{model.input(it,true)}},Modifier.weight(1f),variant=if(state.url.isBlank())"primary"else"secondary")
+                if(state.url.isNotEmpty())SingularityButton(stringResource(if(state.error!=null)R.string.retry else R.string.resolve),{model.input(state.url,true)},Modifier.weight(1f),variant="secondary",enabled=!state.loading)
             }
-            if(state.loading){Skeleton(Modifier.fillMaxWidth().aspectRatio(16f/9));Skeleton(Modifier.fillMaxWidth().height(64.dp))}
+            if(state.loading){Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){AccretionRing(0f,28.dp,"indeterminate");Text(stringResource(R.string.fetching),color=c.mid,style=SingularityTheme.type.label)}}
             details?.let { d->
                 MetadataCard(d.title,d.channelName+" · "+stringResource(R.string.views_text,Formatters.views(d.viewCount)),d.thumbnail,Formatters.duration(d.durationMs))
             }
@@ -76,7 +88,7 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                     SegmentedToggle(listOf(stringResource(R.string.video),stringResource(R.string.audio)),if(state.audioOnly)1 else 0,{model.kind(it==1)})
                     if(state.audioOnly)Tag(stringResource(R.string.best_audio)) else {
                         SectionHeader(stringResource(R.string.quality))
-                        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){StreamPlanner.commonHeights.forEach{height->val q=choices.firstOrNull{it.height==height};QualityChip(StreamPlanner.qualityLabel(height),q?.estimatedBytes?.takeIf{it>0}?.let{"≈ ${Formatters.bytes(it)}"} ?: "",state.height==height,{model.height(height)})}}
+                        QualityGrid(state.height,model::height)
                         Text(stringResource(R.string.quality_fallback),color=c.mid,style=SingularityTheme.type.caption)
                     }
                     if(details!=null && choices.isEmpty())Text(stringResource(R.string.formats_unavailable),color=c.warning,style=SingularityTheme.type.caption)
@@ -91,7 +103,7 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
             state.playlist?.let { list->
                 GlassCard {Text(list.title,color=c.text,style=SingularityTheme.type.title);SingularityButton(stringResource(R.string.select_all),model::selectAll,variant="secondary")
                     SegmentedToggle(listOf(stringResource(R.string.video),stringResource(R.string.audio)),if(state.audioOnly)1 else 0,{model.kind(it==1)})
-                    if(!state.audioOnly)Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){StreamPlanner.commonHeights.forEach{quality->QualityChip(StreamPlanner.qualityLabel(quality),"",state.height==quality,{model.height(quality)})}}
+                    if(!state.audioOnly)QualityGrid(state.height,model::height)
                     LazyColumn(Modifier.heightIn(max=480.dp)) {items(list.entries,key={it.ytId},contentType={"playlist-video"}){item->Row(verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(48.dp).clickable{model.select(item.ytId)}.padding(12.dp).background(if(item.ytId in state.selected)c.accent else c.top,RoundedCornerShape(8.dp)));Box(Modifier.weight(1f)){VideoCardCompact(item.title,item.channel,item.thumbnail){model.select(item.ytId)}}}}}
                     if(list.hasMore)SingularityButton(stringResource(R.string.load_more),{model.loadMore()},variant="secondary",loading=state.loadingMore)
                 }
@@ -99,7 +111,13 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
             if(details==null && recent.isNotEmpty()){SectionHeader(stringResource(R.string.recent_captures));LazyRow(horizontalArrangement=Arrangement.spacedBy(12.dp)){items(recent.take(8),key={it.id},contentType={"shelf"}){v->VideoCardShelf(v.title,v.channelName,v.thumbnailPath,Formatters.duration(v.durationMs)){onPlay(v)}}}}
             Spacer(Modifier.height(16.dp))
         }
-        if(videoLink || state.playlist!=null)SingularityButton(if(state.playlist!=null)pluralStringResource(R.plurals.playlist_download,state.selected.size,state.selected.size)else stringResource(R.string.download_size,selected?.estimatedBytes?.takeIf{it>0}?.let{Formatters.bytes(it)} ?: stringResource(R.string.unknown_size)),{enqueue()},Modifier.fillMaxWidth().padding(vertical=12.dp),enabled=if(state.playlist!=null)state.selected.isNotEmpty()else !state.busy,loading=state.busy)
+        if(videoLink || state.playlist!=null)Column(Modifier.fillMaxWidth().background(c.void).padding(top=12.dp,bottom=10.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                Text(if(state.audioOnly)stringResource(R.string.audio)else if(state.height==Int.MAX_VALUE)stringResource(R.string.max)else StreamPlanner.qualityLabel(state.height),color=c.text,style=SingularityTheme.type.label)
+                Text(selected?.estimatedBytes?.takeIf{it>0}?.let{Formatters.bytes(it)} ?: stringResource(R.string.unknown_size),color=c.mid,style=SingularityTheme.type.caption)
+            }
+            SingularityButton(if(state.playlist!=null)pluralStringResource(R.plurals.playlist_download,state.selected.size,state.selected.size)else stringResource(R.string.add_to_queue),{enqueue()},Modifier.fillMaxWidth(),enabled=!state.busy && (state.playlist==null || state.selected.isNotEmpty()),loading=state.busy)
+        }
     }
 }
 @Composable fun QueueScreen(model:QueueModel) {
@@ -107,9 +125,10 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
     var menu by remember{mutableStateOf<DownloadEntity?>(null)}
     var completedExpanded by rememberSaveable{mutableStateOf(false)}
     val pending by model.pending.collectAsStateWithLifecycle()
-    Column(Modifier.fillMaxSize().padding(horizontal=16.dp)) {
-        Text(stringResource(R.string.queue),color=c.text,style=SingularityTheme.type.headline,modifier=Modifier.padding(vertical=16.dp))
-        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){SingularityButton(stringResource(R.string.pause_all),{model.pauseAll()},variant="secondary");SingularityButton(stringResource(R.string.resume_all),{model.resumeAll()},variant="secondary");SingularityButton(stringResource(R.string.clear_done),{model.clear()},variant="tertiary")}
+    Column(Modifier.fillMaxSize().padding(horizontal=20.dp)) {
+        PageHeading(stringResource(R.string.queue),stringResource(R.string.queue_subtitle))
+        if(rows.isNotEmpty())Text(pluralStringResource(R.plurals.queue_activity,rows.count{it.state in setOf("FETCHING","DOWNLOADING","MUXING")},rows.count{it.state in setOf("FETCHING","DOWNLOADING","MUXING")},Formatters.bytes(progress.values.sumOf{it.speed})),color=c.accent,style=SingularityTheme.type.label)
+        if(rows.isNotEmpty())Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){SingularityButton(stringResource(R.string.pause_all),{model.pauseAll()},variant="secondary");SingularityButton(stringResource(R.string.resume_all),{model.resumeAll()},variant="secondary");SingularityButton(stringResource(R.string.clear_done),{model.clear()},variant="tertiary")}
         if(rows.isEmpty())EmptyState(stringResource(R.string.empty_queue),stringResource(R.string.empty_queue_body))
         LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(vertical=16.dp)) {
             val groups=listOf("DOWNLOADING","FETCHING","MUXING","QUEUED","WAITING_NETWORK","PAUSED","FAILED","DONE","CANCELED")
@@ -119,21 +138,31 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                     val p=progress[row.id]
                     var drag by remember(row.id){mutableFloatStateOf(0f)}
                     GlassCard(Modifier.offset{IntOffset(drag.toInt(),0)}.pointerInput(row.id){detectHorizontalDragGestures(onDragEnd={if(drag < -120f && row.state!="DONE")model.cancelWithUndo(row.id) else if(drag>120f)model.priority(row.id);drag=0f},onDragCancel={drag=0f}){change,amount->change.consume();drag=(drag+amount).coerceIn(-200f,200f)}}.pointerInput(row.id){detectTapGestures(onLongPress={menu=row})}) {
-                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                        Text(row.title,color=c.text,style=SingularityTheme.type.strong,modifier=Modifier.weight(1f),maxLines=2)
-                        AccretionRing(p?.fraction ?: if(row.bytesTotal>0)row.bytesDone.toFloat()/row.bytesTotal else 0f,48.dp,when(row.state){"PAUSED"->"paused";"FAILED"->"error";"DONE"->"done";"MUXING","FETCHING"->"indeterminate";else->"active"},Modifier.clickable{if(row.state in setOf("PAUSED","FAILED"))model.resume(row.id)else if(row.state in setOf("DOWNLOADING","FETCHING","MUXING","WAITING_NETWORK","QUEUED"))model.pause(row.id)})
+                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                        coil3.compose.AsyncImage(row.thumbnailPath,null,Modifier.width(64.dp).aspectRatio(16f/9).clip(RoundedCornerShape(8.dp)).background(c.high),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
+                        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                            Text(row.title,color=c.text,style=SingularityTheme.type.strong,maxLines=2,overflow=TextOverflow.Ellipsis)
+                            if(row.channelName.isNotBlank())Text(row.channelName,color=c.mid,style=SingularityTheme.type.caption,maxLines=1,overflow=TextOverflow.Ellipsis)
+                        }
                         SingularityIcon(Icons.Rounded.MoreVert,stringResource(R.string.options),{menu=row})
                     }
-                    Text(row.channelName,color=c.mid,style=SingularityTheme.type.caption)
-                    AccretionProgressBar(p?.fraction ?: if(row.bytesTotal>0)row.bytesDone.toFloat()/row.bytesTotal else 0f)
-                    Text(if(row.state=="FAILED")stringResource(Errors.string(row.errorCode))else if(p!=null && row.state=="DOWNLOADING")"${(p.fraction*100).toInt()} % · ${Formatters.bytes(p.speed)}/s · ${Formatters.duration(p.eta.coerceAtLeast(0)*1000)}"else stringResource(stateResource(row.state)),color=if(row.state=="FAILED")c.error else c.mid,style=SingularityTheme.type.caption)
+                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                        val actionable=row.state !in setOf("DONE","CANCELED")
+                        val resume=row.state in setOf("PAUSED","FAILED")
+                        val actionLabel=stringResource(if(resume)R.string.resume else R.string.pause)
+                        AccretionRing(p?.fraction ?: if(row.bytesTotal>0)row.bytesDone.toFloat()/row.bytesTotal else 0f,48.dp,when(row.state){"PAUSED"->"paused";"FAILED"->"error";"DONE"->"done";"MUXING","FETCHING","WAITING_NETWORK"->"indeterminate";else->"active"},Modifier.then(if(actionable)Modifier.semantics{contentDescription=actionLabel}.clickable{if(resume)model.resume(row.id)else model.pause(row.id)}else Modifier))
+                        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                            AccretionProgressBar(p?.fraction ?: if(row.bytesTotal>0)row.bytesDone.toFloat()/row.bytesTotal else 0f)
+                            Text(if(row.state=="FAILED")stringResource(Errors.string(row.errorCode))else if(p!=null && row.state=="DOWNLOADING")"${(p.fraction*100).toInt()} % · ${Formatters.bytes(p.speed)}/s · ${Formatters.duration(p.eta.coerceAtLeast(0)*1000)}"else stringResource(stateResource(row.state)),color=if(row.state=="FAILED")c.error else c.mid,style=SingularityTheme.type.caption)
+                        }
+                    }
                     if(row.state=="FAILED")SingularityButton(stringResource(R.string.retry),{model.resume(row.id)},variant="tertiary")
                     if(row.id in pending)Toast(stringResource(R.string.cancel_pending),action=stringResource(R.string.undo),onAction={model.undoCancel(row.id)})
                 }}
             }}
         }
     }
-    menu?.let{row->SingularitySheet({menu=null}){SingularityButton(stringResource(if(row.state in setOf("PAUSED","FAILED"))R.string.resume else R.string.pause),{if(row.state in setOf("PAUSED","FAILED"))model.resume(row.id)else model.pause(row.id);menu=null});SingularityButton(stringResource(R.string.priority),{model.priority(row.id);menu=null},variant="secondary");SingularityButton(stringResource(R.string.cancel),{model.cancel(row.id);menu=null},variant="tertiary")}}
+    menu?.let{row->SingularitySheet({menu=null}){if(row.state in setOf("DONE","CANCELED"))SingularityButton(stringResource(R.string.clear_done),{model.clear();menu=null},variant="secondary")else {SingularityButton(stringResource(if(row.state in setOf("PAUSED","FAILED"))R.string.resume else R.string.pause),{if(row.state in setOf("PAUSED","FAILED"))model.resume(row.id)else model.pause(row.id);menu=null});SingularityButton(stringResource(R.string.priority),{model.priority(row.id);menu=null},variant="secondary");SingularityButton(stringResource(R.string.cancel),{model.cancel(row.id);menu=null},variant="tertiary")}}}
 }
 fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNLOADING"->R.string.downloading;"MUXING"->R.string.muxing;"WAITING_NETWORK"->R.string.waiting_network;"PAUSED"->R.string.paused;"DONE"->R.string.done;"FAILED"->R.string.failed;"CANCELED"->R.string.canceled;else->R.string.queued}
 @Composable fun LibraryScreen(model:LibraryModel,onPlay:(VideoEntity,List<VideoEntity>,Boolean)->Unit,onCapture:()->Unit,onChannel:(String)->Unit) {
@@ -173,8 +202,8 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
         if(paged.loadState.refresh is LoadState.Error || paged.loadState.append is LoadState.Error)SingularityButton(stringResource(R.string.retry),{paged.retry()},variant="secondary")
         Text(pluralStringResource(R.plurals.library_summary,all.size,all.size,Formatters.bytes(all.sumOf{it.fileSizeBytes})),color=c.low,style=SingularityTheme.type.caption,modifier=Modifier.padding(vertical=16.dp))
     }
-    Column(Modifier.fillMaxSize().padding(horizontal=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment=Alignment.CenterVertically){
+    Column(Modifier.fillMaxSize().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.padding(top=20.dp),verticalAlignment=Alignment.CenterVertically){
             Text(if(selected.isEmpty())stringResource(R.string.library)else selected.size.toString(),color=c.text,style=SingularityTheme.type.headline,modifier=Modifier.weight(1f))
             if(selected.isNotEmpty()){
                 SingularityIcon(Icons.Rounded.Share,stringResource(R.string.share),{share(context,all.filter{it.id in selected})})
@@ -185,6 +214,7 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
                 Spacer(Modifier.width(8.dp));SingularityIcon(Icons.Rounded.Sort,stringResource(R.string.sort),{sorting=true})
             }
         }
+        Text(pluralStringResource(R.plurals.library_summary,all.size,all.size,Formatters.bytes(all.sumOf{it.fileSizeBytes})),color=c.mid,style=SingularityTheme.type.caption)
         if(searching){
             LinkField(search,model::search,stringResource(R.string.search),{model.rememberSearch()})
             if(search.isBlank() && recentSearches.isNotEmpty())Row(verticalAlignment=Alignment.CenterVertically){Box(Modifier.weight(1f)){FilterChipRow(recentSearches,-1,{model.search(recentSearches[it])})};SingularityIcon(Icons.Rounded.Clear,stringResource(R.string.clear),{model.clearSearches()})}
@@ -217,8 +247,8 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
 @Composable fun SettingsScreen(model:SettingsModel,all:List<VideoEntity>) {
     val settings by model.state.collectAsStateWithLifecycle();val channels by model.channels.collectAsStateWithLifecycle();val c=SingularityTheme.colors;val context=LocalContext.current
     var sheet by remember{mutableStateOf<String?>(null)}
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        Text(stringResource(R.string.settings),color=c.text,style=SingularityTheme.type.headline)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        PageHeading(stringResource(R.string.settings),stringResource(R.string.settings_subtitle))
         SectionHeader(stringResource(R.string.audio))
         GlassCard {
             SettingsRow(Icons.Rounded.Language,stringResource(R.string.preferred_language),value=Locale.forLanguageTag(settings.preferredAudioLanguage).displayLanguage,onClick={sheet="language"})
@@ -239,7 +269,7 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
         GlassCard {
             SettingsRow(Icons.Rounded.DarkMode,stringResource(R.string.amoled),trailing={SingularitySwitch(settings.amoledPureBlack,{v->model.change{it.copy(amoledPureBlack=v)}},stringResource(R.string.amoled))})
             SettingsRow(Icons.Rounded.Animation,stringResource(R.string.animations),trailing={SingularitySwitch(settings.animationsEnabled,{v->model.change{it.copy(animationsEnabled=v)}},stringResource(R.string.animations))})
-            SettingsRow(Icons.Rounded.Palette,stringResource(R.string.accent),value=settings.accentPreset,onClick={sheet="accent"})
+            SettingsRow(Icons.Rounded.Palette,stringResource(R.string.accent),value=stringResource(when(settings.accentPreset){"PLASMA"->R.string.accent_rose;"BLUESHIFT"->R.string.accent_blue;else->R.string.accent_amber}),onClick={sheet="accent"})
         }
         SectionHeader(stringResource(R.string.storage))
         GlassCard {Text(Formatters.bytes(all.sumOf{it.fileSizeBytes}),color=c.text);SingularityButton(stringResource(R.string.clear_cache),{model.work{kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){coil3.SingletonImageLoader.get(context).diskCache?.clear();coil3.SingletonImageLoader.get(context).memoryCache?.clear()};model.effects.send(R.string.cache_cleared)}},variant="secondary")}
@@ -255,7 +285,7 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
     sheet?.let{type->SingularitySheet({sheet=null}){when(type){
         "language"->LanguagePicker(settings.preferredAudioLanguage){language->model.change{it.copy(preferredAudioLanguage=language)};sheet=null}
         "quality"->listOf(720,1080,Int.MAX_VALUE).forEach{quality->SingularityButton(if(quality==Int.MAX_VALUE)stringResource(R.string.max)else "${quality}p",{model.change{it.copy(defaultMaxQuality=quality)};sheet=null},variant=if(quality==settings.defaultMaxQuality)"primary"else"secondary")}
-        "accent"->listOf("EMBER","PLASMA","BLUESHIFT").forEach{preset->SingularityButton(preset,{model.change{it.copy(accentPreset=preset)};sheet=null},variant=if(preset==settings.accentPreset)"primary"else"secondary")}
+        "accent"->listOf("EMBER","PLASMA","BLUESHIFT").forEach{preset->val color=when(preset){"PLASMA"->c.plasma;"BLUESHIFT"->c.blueshift;else->c.ember};val label=stringResource(when(preset){"PLASMA"->R.string.accent_rose;"BLUESHIFT"->R.string.accent_blue;else->R.string.accent_amber});Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable{model.change{it.copy(accentPreset=preset)};sheet=null}.padding(16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(16.dp)){Box(Modifier.size(28.dp).background(color,CircleShape));Text(label,color=c.text,modifier=Modifier.weight(1f));if(preset==settings.accentPreset)Icon(Icons.Rounded.Check,null,tint=c.accent)}}
         "channels"->if(channels.isEmpty())Text(stringResource(R.string.empty_channels),color=c.mid)else channels.forEach{pref->SettingsRow(Icons.Rounded.Bookmark,all.firstOrNull{it.channelId==pref.channelId}?.channelName ?: pref.channelId,subtitle=pref.languageTag,onClick={model.forget(pref.channelId)},trailing={SingularityIcon(Icons.Rounded.Delete,stringResource(R.string.delete),{model.forget(pref.channelId)})})}
     }}}
 }
@@ -269,12 +299,28 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
     val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){}
     BackHandler(page>0){page--}
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp),verticalArrangement=Arrangement.spacedBy(20.dp),horizontalAlignment=Alignment.CenterHorizontally) {
+        Text(stringResource(R.string.app_name),color=c.text,style=SingularityTheme.type.title,modifier=Modifier.align(Alignment.Start))
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){repeat(3){segment->AccretionProgressBar(if(segment<=page)1f else 0f,Modifier.weight(1f),3.dp)}}
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(16.dp)) {
-            when(page){0->{BlackHoleHero(260.dp);Text(stringResource(R.string.welcome),color=c.text,style=SingularityTheme.type.display);Text(stringResource(R.string.welcome_body),color=c.mid,style=SingularityTheme.type.body)}
+            when(page){0->{BlackHoleHero(224.dp);Text(stringResource(R.string.welcome),color=c.text,style=SingularityTheme.type.display);Text(stringResource(R.string.welcome_body),color=c.mid,style=SingularityTheme.type.body)}
             1->{Text(stringResource(R.string.your_language),color=c.text,style=SingularityTheme.type.headline);LanguagePicker(settings.preferredAudioLanguage){language->model.change{it.copy(preferredAudioLanguage=language)}};SectionHeader(stringResource(R.string.max_quality));Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){listOf(720,1080,Int.MAX_VALUE).forEach{q->QualityChip(if(q==Int.MAX_VALUE)stringResource(R.string.max)else "${q}p","",settings.defaultMaxQuality==q,{model.change{it.copy(defaultMaxQuality=q)}})}}}
             2->{BlackHoleHero(160.dp);Text(stringResource(R.string.notifications_title),color=c.text,style=SingularityTheme.type.headline);Text(stringResource(R.string.notifications_body),color=c.mid,style=SingularityTheme.type.body);if(Build.VERSION.SDK_INT>=33)SingularityButton(stringResource(R.string.allow_notifications),{permission.launch(Manifest.permission.POST_NOTIFICATIONS)},variant="secondary")}}
         }
         SingularityButton(stringResource(if(page==2)R.string.enter else R.string.next),{if(page<2)page++ else model.change{it.copy(onboardingDone=true)}},Modifier.fillMaxWidth())
     }
+}
+
+@Composable private fun PageHeading(title:String,subtitle:String) {
+    Column(Modifier.fillMaxWidth().padding(top=24.dp,bottom=20.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+        Text(title,color=SingularityTheme.colors.text,style=SingularityTheme.type.headline)
+        Text(subtitle,color=SingularityTheme.colors.mid,style=SingularityTheme.type.body)
+    }
+}
+@OptIn(ExperimentalLayoutApi::class)
+@Composable private fun QualityGrid(selected:Int,onSelect:(Int)->Unit) {
+    val columns=if(LocalDensity.current.fontScale>1.3f)2 else 4
+    FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp),maxItemsInEachRow=columns) {
+        StreamPlanner.commonHeights.forEach{height->QualityChip(when(height){1440->"2K";2160->"4K";else->"${height}p"},"",selected==height,{onSelect(height)},Modifier.weight(1f))}
+    }
+    if(selected==Int.MAX_VALUE)Tag(stringResource(R.string.max))
 }

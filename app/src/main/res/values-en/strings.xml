@@ -7,10 +7,10 @@
     <string name="clear">Clear</string>
     <string name="options">Options</string>
     <string name="paste_hint">Paste a YouTube link</string>
-    <string name="capture_title">Capture any video</string>
-    <string name="capture_body">Paste a YouTube link and save it in your library.</string>
-    <string name="resolve">Get information</string>
-    <string name="paste">Paste</string>
+    <string name="capture_title">Your videos.\nYour universe.</string>
+    <string name="capture_body">Save video or audio from YouTube and take it with you.</string>
+    <string name="resolve">Analyze</string>
+    <string name="paste">Paste link</string>
     <string name="retry">Retry</string>
     <string name="download">Download</string>
     <string name="video">Video</string>
@@ -152,4 +152,14 @@
     <string name="quality_fallback">Downloads the best available quality up to your selection.</string>
     <string name="resolve_in_queue">Add it now. Information and formats will be resolved in the queue.</string>
     <string name="formats_unavailable">YouTube returned no compatible formats. The queue will try again; if it fails, it will show the reason and let you retry.</string>
+    <string name="capture_kicker">OFFLINE BY DESIGN</string>
+    <string name="video_link">YouTube link</string>
+    <string name="new_capture">New capture</string>
+    <string name="add_to_queue">Add to queue</string>
+    <string name="queue_subtitle">Everything on its way.</string>
+    <plurals name="queue_activity"><item quantity="one">%1$d active · %2$s/s</item><item quantity="other">%1$d active · %2$s/s</item></plurals>
+    <string name="settings_subtitle">Your pace. Your preferences.</string>
+    <string name="accent_amber">Amber</string>
+    <string name="accent_rose">Rose</string>
+    <string name="accent_blue">Blue</string>
 </resources>
