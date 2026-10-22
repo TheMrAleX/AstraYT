@@ -74,3 +74,4 @@ Las casillas de las siete fases permanecen abiertas porque representan la especi
 - Navegación y minirreproductor ocupan su altura medida, sin márgenes inferiores fijos. Roles accesibles en pestañas/selecciones y opciones de audio/cola de 0.0.2 conservadas.
 - No se instala ni se ejecuta emulador: la revisión visual en Android corresponde al usuario. Se valida compilación release, pruebas existentes, lint y firma.
 - Validación 0.0.3: `testReleaseUnitTest assembleRelease lintRelease --offline` correcto, 30 pruebas sin fallos/omisiones, lint sin errores. Dos APKs ARM64/ARMv7 verificados con el certificado original, ABI correcta y versionCode 3.
+- Publicado código y release https://github.com/TheMrAleX/AstraYT/releases/tag/v0.0.3 ; workflow 39708383462 correcto y los cuatro digests publicados coinciden con los artefactos locales. Revisión visual en emulador pendiente del usuario.
