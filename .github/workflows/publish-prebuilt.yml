@@ -54,17 +54,32 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'tag={tag}\n')
           PYTHON
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Verify update signatures
         shell: bash
         run: |
           set -euo pipefail
-          signer=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner | sort -V | tail -n 1)
-          test -n "$signer"
+          tools_archive="$RUNNER_TEMP/android-build-tools-36.zip"
+          curl --fail --silent --show-error --location --retry 3 https://dl.google.com/android/repository/build-tools_r36_linux.zip --output "$tools_archive"
+          printf '%s  %s\n' 5d9ac77fb6ff43d9da518a337b4fcf8f9097113df531d99ccefe80ef7ce8250b "$tools_archive" | sha256sum -c -
+          signer="$RUNNER_TEMP/apksigner.jar"
+          unzip -p "$tools_archive" android-16/lib/apksigner.jar > "$signer"
           expected=c4a7fec889a3550494efea270d3e3c8a76219792d11f41e12946f2e8a04763df
           tag=$(python3 -c 'import json; print(json.load(open("RELEASE.json"))["tag"])')
           for abi in arm64-v8a armeabi-v7a; do
-            certificate=$("$signer" verify --print-certs "AstraYT-$tag-$abi.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
-            test "$certificate" = "$expected"
+            report="$RUNNER_TEMP/signature-$abi.txt"
+            if ! java -jar "$signer" verify --print-certs "AstraYT-$tag-$abi.apk" > "$report"; then
+              echo "::error::No se pudo verificar la firma de $abi"
+              exit 1
+            fi
+            certificate=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$report")
+            if [ "$certificate" != "$expected" ]; then
+              echo "::error::El certificado de $abi no coincide con la firma original: $certificate"
+              exit 1
+            fi
           done
       - name: Upload, verify and publish
         env:
