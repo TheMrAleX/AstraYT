@@ -81,7 +81,7 @@ jobs:
               exit 1
             fi
           done
-      - name: Upload, verify and publish
+      - name: Create release draft
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -99,14 +99,35 @@ jobs:
             gh release create "$RELEASE_TAG" --draft --target "$source_commit" --title "AstraYT ${RELEASE_TAG#v}" --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
           test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+      - name: Upload APKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
           assets=()
           for abi in arm64-v8a armeabi-v7a; do
             apk="AstraYT-$RELEASE_TAG-$abi.apk"
             assets+=("$apk" "$apk.sha256")
           done
           gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+      - name: Verify uploaded checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
           verify_dir="$RUNNER_TEMP/verify-release"
           mkdir -p "$verify_dir"
           gh release download "$RELEASE_TAG" --dir "$verify_dir"
           (cd "$verify_dir" && sha256sum -c "$GITHUB_WORKSPACE/SHA256SUMS")
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
           gh release edit "$RELEASE_TAG" --draft=false --latest
