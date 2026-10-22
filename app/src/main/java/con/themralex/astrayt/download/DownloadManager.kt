@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.*
 import kotlin.random.Random
 
-@kotlinx.serialization.Serializable data class DownloadOptions(val details:VideoDetails?=null,val trackId:String?=null,val height:Int=1080,val container:String="",val audioOnly:Boolean=false,val sponsorBlockCategories:Set<String> = emptySet())
+@kotlinx.serialization.Serializable data class DownloadOptions(val details:VideoDetails?=null,val trackId:String?=null,val height:Int=1080,val container:String="",val audioOnly:Boolean=false,val sponsorBlockCategories:Set<String> = emptySet(),val pinnedVideoId:String?=null,val pinnedAudioId:String?=null,val planPinned:Boolean=false)
 data class Progress(val done:Long,val total:Long,val speed:Long,val eta:Long) {val fraction get()=if(total>0)done.toFloat()/total else 0f}
 private class StreamExpired:IOException()
 @Singleton class DownloadManager @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val preferences:Preferences,private val backend:YoutubeBackend,private val client:OkHttpClient,private val storage:MediaStorage) {
@@ -36,6 +36,7 @@ private class StreamExpired:IOException()
     private val network=MutableStateFlow(false)
     private val initialization=Mutex()
     private val scheduler=Mutex()
+    private val actions=Mutex()
     private var ready=false
     private val cooldown=AtomicLong(0)
     private val connectivity=context.getSystemService(ConnectivityManager::class.java)
@@ -43,6 +44,11 @@ private class StreamExpired:IOException()
     suspend fun initialize()=initialization.withLock {
         if(ready)return@withLock
         dao.pauseInterrupted()
+        dao.allDownloads().forEach{row->
+            val dir=File(context.noBackupFilesDir,"dl/${row.id}")
+            if(storage.recover(row,dir)){dao.progress(row.id,row.bytesTotal,row.bytesTotal);dao.state(row.id,"DONE");dir.deleteRecursively()}
+            else if(row.state !in setOf("DONE","CANCELED") && File(dir,"state.bin").exists())dao.progress(row.id,ChunkState(dir).validatedBytes(),row.bytesTotal)
+        }
         val stored=dao.allDownloads()
         val paused=stored.count{it.state=="PAUSED"}
         if(paused>0){
@@ -51,7 +57,7 @@ private class StreamExpired:IOException()
             val resume=android.app.PendingIntent.getForegroundService(context,101,Intent(context,DownloadService::class.java).setAction("resume_all"),android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
             notices.notify(101,androidx.core.app.NotificationCompat.Builder(context,QUIET_ISSUES_CHANNEL).setSmallIcon(con.themralex.astrayt.R.drawable.ic_notification).setContentTitle(context.resources.getQuantityString(con.themralex.astrayt.R.plurals.paused_count,paused,paused)).setAutoCancel(true).setSilent(true).setOnlyAlertOnce(true).addAction(0,context.getString(con.themralex.astrayt.R.string.resume),resume).build())
         }
-        val known=stored.map{it.id.toString()}.toSet()
+        val known=stored.filter{it.state !in setOf("DONE","CANCELED")}.map{it.id.toString()}.toSet()
         File(context.noBackupFilesDir,"dl").listFiles()?.filter{it.name !in known}?.forEach{it.deleteRecursively()}
         connectivity.registerDefaultNetworkCallback(object:ConnectivityManager.NetworkCallback(){override fun onAvailable(network:Network){this@DownloadManager.network.value=true};override fun onLost(network:Network){this@DownloadManager.network.value=false};override fun onCapabilitiesChanged(network:Network,capabilities:NetworkCapabilities){this@DownloadManager.network.value=capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}})
         network.value=online(false);ready=true
@@ -60,8 +66,15 @@ private class StreamExpired:IOException()
     }
     private suspend fun schedule(rows:List<DownloadEntity>,prefs:Settings):Unit=scheduler.withLock {
         rows.filter{it.state=="QUEUED" && !active.containsKey(it.id)}.take((prefs.maxConcurrentDownloads-active.size).coerceAtLeast(0)).forEach { row->
-            val job=scope.launch(start=CoroutineStart.LAZY){try{pipeline(row,prefs)}finally{active.remove(row.id);counters.remove(row.id);calls.remove(row.id);schedule(dao.allDownloads(),preferences.flow.first())}}
-            active[row.id]=job;job.start()
+            if(dao.claimQueued(row.id)==0)return@forEach
+            val job=scope.launch(start=CoroutineStart.LAZY){pipeline(row,prefs)}
+            active[row.id]=job
+            // Completion also runs when cancellation happens before the lazy body starts.
+            job.invokeOnCompletion{scope.launch{
+                scheduler.withLock{if(active.remove(row.id,job)){counters.remove(row.id);calls.remove(row.id)}}
+                schedule(dao.allDownloads(),preferences.flow.first())
+            }}
+            job.start()
         }
     }
     suspend fun enqueue(videoId:String,height:Int,audioOnly:Boolean,details:VideoDetails?=null,trackId:String?=null,title:String?=null,channel:String="",thumbnail:String=""):Long {
@@ -72,30 +85,42 @@ private class StreamExpired:IOException()
         startService();return id
     }
     fun startService(){ContextCompat.startForegroundService(context,Intent(context,DownloadService::class.java))}
-    suspend fun pause(id:Long) {dao.state(id,"PAUSED");calls[id]?.toList()?.forEach{it.cancel()};active[id]?.cancelAndJoin()}
-    suspend fun resume(id:Long){initialize();dao.state(id,"QUEUED");startService()}
-    suspend fun cancel(id:Long){dao.state(id,"CANCELED");calls[id]?.toList()?.forEach{it.cancel()};active[id]?.cancelAndJoin();File(context.noBackupFilesDir,"dl/$id").deleteRecursively()}
+    private suspend fun stop(id:Long,state:String){
+        val job=scheduler.withLock{
+            dao.stop(id,state)
+            calls[id]?.toList()?.forEach{it.cancel()}
+            active[id]?.also{it.cancel()}
+        }
+        job?.join()
+    }
+    suspend fun pause(id:Long)=actions.withLock{stop(id,"PAUSED")}
+    suspend fun resume(id:Long)=actions.withLock{initialize();dao.queueIfResumable(id);startService()}
+    suspend fun cancel(id:Long)=actions.withLock{stop(id,"CANCELED");File(context.noBackupFilesDir,"dl/$id").deleteRecursively()}
     suspend fun pauseAll(){dao.allDownloads().filter{it.state in setOf("QUEUED","FETCHING","DOWNLOADING","WAITING_NETWORK","MUXING")}.forEach{pause(it.id)}}
-    suspend fun resumeAll(){initialize();dao.allDownloads().filter{it.state in setOf("PAUSED","FAILED","WAITING_NETWORK")}.forEach{dao.state(it.id,"QUEUED")};startService()}
+    suspend fun resumeAll()=actions.withLock{initialize();dao.allDownloads().filter{it.state in setOf("PAUSED","FAILED","WAITING_NETWORK")}.forEach{dao.queueIfResumable(it.id)};startService()}
     suspend fun prioritize(id:Long)=dao.prioritize(id)
     suspend fun clearFinished()=dao.clearFinished()
-    private suspend fun awaitNetwork(id:Long,prefs:Settings,nextState:String="DOWNLOADING"){while(!online(prefs.wifiOnly)){dao.state(id,"WAITING_NETWORK");withTimeoutOrNull(10000){network.first{online(prefs.wifiOnly)}};currentCoroutineContext().ensureActive()};dao.state(id,nextState)}
+    private suspend fun awaitNetwork(id:Long,prefs:Settings,nextState:String="DOWNLOADING"){while(!online(prefs.wifiOnly)){dao.runningState(id,"WAITING_NETWORK");withTimeoutOrNull(10000){network.first{online(prefs.wifiOnly)}};currentCoroutineContext().ensureActive()};currentCoroutineContext().ensureActive();dao.runningState(id,nextState)}
     private suspend fun pipeline(row:DownloadEntity,prefs:Settings) {
         val dir=File(context.noBackupFilesDir,"dl/${row.id}").apply{mkdirs()};val state=ChunkState(dir)
         var wake:PowerManager.WakeLock?=null
         try {
-            startService();dao.state(row.id,"FETCHING")
-            val options=Json.decodeFromString<DownloadOptions>(row.optionsJson)
+            if(storage.recover(row,dir)){
+                dao.progress(row.id,row.bytesTotal,row.bytesTotal);dao.state(row.id,"DONE");dir.deleteRecursively();return
+            }
+            startService();currentCoroutineContext().ensureActive();dao.runningState(row.id,"FETCHING")
+            var options=Json.decodeFromString<DownloadOptions>(row.optionsJson)
             awaitNetwork(row.id,prefs,"FETCHING")
             val cuts=if(options.sponsorBlockCategories.isEmpty())emptyList()else SponsorBlock(client).segments(row.ytId,options.sponsorBlockCategories)
             var details=options.details?.takeIf{System.currentTimeMillis()-it.fetchedAt<1200000 && (it.videos.isNotEmpty() || it.tracks.isNotEmpty())} ?: backend.details(row.ytId)
             var remembered=dao.channelLanguage(details.channelId)
-            fun selectedTrack()=details.tracks.firstOrNull{it.id==options.trackId} ?: AudioTrackSelector.select(details.tracks,prefs.preferredAudioLanguage,remembered,prefs.autoPickDubbed,batch=true).track
+            fun selectedTrack()=details.tracks.firstOrNull{it.id==options.trackId} ?: if(options.planPinned && options.trackId!=null)throw NoStreams() else AudioTrackSelector.select(details.tracks,prefs.preferredAudioLanguage,remembered,prefs.autoPickDubbed,batch=true).track
             var pinned:QualityOption?=null
             fun quality():QualityOption {
                 val all=StreamPlanner.options(details,selectedTrack(),options.audioOnly)
                 val previous=pinned
-                return (if(previous==null)StreamPlanner.default(all,options.height)
+                return (if(previous==null && !options.planPinned)StreamPlanner.default(all,options.height)
+                    else if(previous==null)all.firstOrNull{it.video?.id==options.pinnedVideoId && it.audio?.id==options.pinnedAudioId && it.container==options.container && it.height==options.height}
                     else all.firstOrNull{it.video?.id==previous.video?.id && it.audio?.id==previous.audio?.id && it.container==previous.container && it.height==previous.height})
                     ?: throw NoStreams()
             }
@@ -104,13 +129,27 @@ private class StreamExpired:IOException()
             val refreshMutex=Mutex();var refreshed=false
             suspend fun refresh(){refreshMutex.withLock{if(!refreshed){details=backend.refreshStreams(row.ytId);refreshed=true}}}
             var plan=quality();pinned=plan
+            options=options.copy(trackId=selectedTrack()?.id,pinnedVideoId=plan.video?.id,pinnedAudioId=plan.audio?.id,container=plan.container,height=plan.height,planPinned=true)
+            dao.options(row.id,Json.encodeToString(options))
             dao.metadata(row.id,details.title,details.channelName,details.thumbnail)
             awaitNetwork(row.id,prefs)
             val lengths=mutableMapOf<String,Long>()
             suspend fun length(stream:MediaStream):Long {return try {contentLength(row.id,stream.url,stream.headers)}catch(e:StreamExpired){refresh();plan=quality();(if(stream.videoOnly)plan.video else plan.audio ?: plan.video)?.let{contentLength(row.id,it.url,it.headers)} ?: throw e}}
             plan.video?.let{lengths["video"]=length(it)};plan.audio?.let{lengths["audio"]=length(it)}
-            val total=lengths.values.sum();if(dir.usableSpace<total*1.15)throw IOException("DISK_FULL")
-            val done=AtomicLong();val totalCounter=AtomicLong(total);counters[row.id]=done to totalCounter
+            val total=lengths.values.sum()
+            // Existing preallocated files already occupy storage; require only new allocation plus headroom.
+            val allocation=lengths.entries.sumOf{(key,length)->(length-File(dir,"$key.part").length()).coerceAtLeast(0)}
+            if(dir.usableSpace<allocation+16L*1024*1024)throw IOException("DISK_FULL")
+            lengths.forEach{(key,length)->
+                val stream=if(key=="video")plan.video else plan.audio
+                val identity=listOf(row.ytId,options.trackId,key,stream?.id,stream?.codec,plan.container).joinToString("|")
+                state.prepare(key,length,File(dir,"$key.part"),identity)
+            }
+            state.save()
+            val done=AtomicLong(lengths.entries.sumOf{(key,length)->ChunkPlanner.plan(length).sumOf{state.offset(key,it.index)}})
+            val totalCounter=AtomicLong(total)
+            dao.progress(row.id,done.get(),total)
+            counters[row.id]=done to totalCounter
 
             val io=Dispatchers.IO.limitedParallelism(12)
             coroutineScope {
@@ -118,14 +157,13 @@ private class StreamExpired:IOException()
                     async(io) {
                         val file = File(dir, "$key.part")
                         val chunks = ChunkPlanner.plan(length)
-                        val completed = state.prepare(key, length, file)
-                        done.addAndGet(chunks.filter { completed[it.index] }.sumOf { it.length })
                         RandomAccessFile(file, "rw").use { random ->
                             random.setLength(length)
+                            random.fd.sync()
                             val work = Channel<Chunk>(Channel.UNLIMITED)
                             chunks.filterNot { state.has(key, it.index) }.forEach { work.trySend(it) }
                             work.close()
-                            val lastSave = AtomicLong(0)
+                            state.save()
                             coroutineScope {
                                 repeat(prefs.connectionsPerStream) {
                                     launch {
@@ -138,11 +176,14 @@ private class StreamExpired:IOException()
                                                 awaitNetwork(row.id, prefs)
                                                 val wait = cooldown.get() - System.currentTimeMillis()
                                                 if (wait > 0) delay(wait)
-                                                var counted = 0L
+                                                var offset = chunk.start + state.offset(key,chunk.index)
+                                                if(offset>chunk.end)break
+                                                var checkpoint = offset
+                                                var savedAt = System.nanoTime()
                                                 try {
                                                     val stream = if (key == "video") quality().video else quality().audio
                                                     val url = stream?.url ?: throw IOException("Missing stream")
-                                                    val call = client.newCall(Request.Builder().url(url).apply{stream.headers.forEach{(name,value)->header(name,value)}}.header("Range", "bytes=${chunk.start}-${chunk.end}").header("Accept-Encoding", "identity").build())
+                                                    val call = client.newCall(Request.Builder().url(url).apply{stream.headers.forEach{(name,value)->header(name,value)}}.header("Range", "bytes=$offset-${chunk.end}").header("Accept-Encoding", "identity").build())
                                                     register(row.id, call)
                                                     transferLock.acquire(5*60*1000L)
                                                     try {
@@ -151,12 +192,11 @@ private class StreamExpired:IOException()
                                                                 403, 410 -> throw StreamExpired()
                                                                 429 -> { cooldown.set(System.currentTimeMillis() + 30000); throw IOException("429") }
                                                             }
-                                                            if (response.code != 206 && !(response.code == 200 && chunk.start == 0L && chunk.length == length)) throw IOException("Range request refused: ${response.code}")
+                                                            if (response.code != 206 && !(response.code == 200 && offset == 0L && chunk.length == length)) throw IOException("Range request refused: ${response.code}")
                                                             val range = response.header("Content-Range")
-                                                            if (response.code == 206 && range?.startsWith("bytes ${chunk.start}-${chunk.end}/") != true) throw IOException("Invalid content range")
+                                                            if (response.code == 206 && range != "bytes $offset-${chunk.end}/$length") throw IOException("Invalid content range")
                                                             response.body.byteStream().use { input ->
-                                                                var offset = chunk.start
-                                                                var remain = chunk.length
+                                                                var remain = chunk.end-offset+1
                                                                 while (remain > 0) {
                                                                     currentCoroutineContext().ensureActive()
                                                                     val n = input.read(buffer, 0, minOf(buffer.size.toLong(), remain).toInt())
@@ -164,19 +204,26 @@ private class StreamExpired:IOException()
                                                                     val bytes = ByteBuffer.wrap(buffer, 0, n)
                                                                     while (bytes.hasRemaining()) offset += random.channel.write(bytes, offset)
                                                                     remain -= n
-                                                                    counted += n
                                                                     done.addAndGet(n.toLong())
+                                                                    if(offset-checkpoint>=1024*1024 || System.nanoTime()-savedAt>=1_000_000_000L){
+                                                                        random.channel.force(false)
+                                                                        state.advance(key,chunk.index,offset-chunk.start);state.save()
+                                                                        checkpoint=offset;savedAt=System.nanoTime()
+                                                                    }
                                                                 }
                                                             }
                                                         }
-                                                    } finally { unregister(row.id, call);if(transferLock.isHeld)transferLock.release() }
-                                                    state.done(key, chunk.index)
-                                                    val now = System.currentTimeMillis()
-                                                    if (now - lastSave.get() > 2000) { state.save(); lastSave.set(now) }
+                                                    } finally {
+                                                        unregister(row.id, call);if(transferLock.isHeld)transferLock.release()
+                                                        // Includes a short final read on pause, network failure or normal completion.
+                                                        random.channel.force(false)
+                                                        state.advance(key,chunk.index,offset-chunk.start);state.save()
+                                                    }
+
                                                     break
                                                 } catch (e: CancellationException) { throw e }
                                                 catch (e: Exception) {
-                                                    done.addAndGet(-counted)
+
                                                     if (e is StreamExpired) { if (refreshed) throw e; refresh() }
                                                     if (++attempt >= 6) throw e
                                                     delay((500L shl (attempt - 1)).coerceAtMost(20000) + Random.nextLong(250))
@@ -191,11 +238,19 @@ private class StreamExpired:IOException()
                     }
                 }.awaitAll()
             }
-            state.save();wake?.let{if(it.isHeld)it.release()};wake=null;dao.state(row.id,"MUXING")
+            state.save();wake?.let{if(it.isHeld)it.release()};wake=null;currentCoroutineContext().ensureActive();dao.runningState(row.id,"MUXING")
+            if(dir.usableSpace<total+16L*1024*1024)throw IOException("DISK_FULL")
             storage.finish(row,options.copy(trackId=selectedTrack()?.id),details,plan,File(dir,"video.part").takeIf{it.exists()},File(dir,"audio.part").takeIf{it.exists()},cuts)
             dao.progress(row.id,total,total);dao.state(row.id,"DONE");dir.deleteRecursively()
         }catch(e:TimeoutCancellationException){dao.failUnlessStopped(row.id,"TIMEOUT")}catch(e:CancellationException){throw e}catch(e:Exception){dao.failUnlessStopped(row.id,Errors.code(e))}
-        finally {if(dir.exists())runCatching{state.save()};wake?.let{if(it.isHeld)it.release()}}
+        finally {withContext(NonCancellable){
+            if(dir.exists()){
+                runCatching{state.save()}
+                val total=counters[row.id]?.second?.get() ?: row.bytesTotal
+                dao.progress(row.id,state.bytes(),total)
+            }
+            wake?.let{if(it.isHeld)it.release()}
+        }}
     }
     private fun register(id:Long,call:Call){calls.computeIfAbsent(id){ConcurrentHashMap.newKeySet()}.add(call)}
     private fun unregister(id:Long,call:Call){calls[id]?.remove(call)}

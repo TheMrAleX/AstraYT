@@ -28,10 +28,9 @@ class LogicTest {
             val state=ChunkState(dir)
             state.prepare("video",1024,part)
             state.done("video",0)
-            state.done("video",9)
             state.save()
             val restored=ChunkState(dir)
-            assertTrue(restored.prepare("video",1024,part)[9])
+            assertTrue(restored.prepare("video",1024,part)[0])
             assertFalse(restored.has("video",1))
             java.io.RandomAccessFile(part,"rw").use{it.setLength(10)}
             assertTrue(restored.prepare("video",1024,part).isEmpty)

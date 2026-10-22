@@ -25,12 +25,17 @@ data class DownloadEntity(@PrimaryKey(autoGenerate=true)val id: Long=0,val ytId:
     @Query("SELECT * FROM downloads WHERE id=:id") suspend fun download(id: Long):DownloadEntity?
     @Insert suspend fun enqueue(download: DownloadEntity):Long
     @Query("UPDATE downloads SET state=:state,errorCode=:error,updatedAtMs=:now WHERE id=:id") suspend fun state(id: Long,state: String,error: String?=null,now: Long=System.currentTimeMillis())
+    @Query("UPDATE downloads SET state='FETCHING',errorCode=NULL WHERE id=:id AND state='QUEUED'") suspend fun claimQueued(id:Long):Int
+    @Query("UPDATE downloads SET state=:state,errorCode=NULL WHERE id=:id AND state NOT IN ('DONE','CANCELED')") suspend fun stop(id:Long,state:String)
+    @Query("UPDATE downloads SET state=:state,errorCode=NULL WHERE id=:id AND state NOT IN ('PAUSED','CANCELED','DONE','FAILED')") suspend fun runningState(id:Long,state:String)
+    @Query("UPDATE downloads SET state='QUEUED',errorCode=NULL WHERE id=:id AND state IN ('PAUSED','FAILED')") suspend fun queueIfResumable(id:Long)
+    @Query("UPDATE downloads SET optionsJson=:options WHERE id=:id") suspend fun options(id:Long,options:String)
     @Query("UPDATE downloads SET state='FAILED',errorCode=:error,updatedAtMs=:now WHERE id=:id AND state NOT IN ('CANCELED','PAUSED','DONE')") suspend fun failUnlessStopped(id:Long,error:String,now:Long=System.currentTimeMillis())
     @Query("UPDATE downloads SET title=:title,channelName=:channel,thumbnailPath=:thumbnail WHERE id=:id") suspend fun metadata(id:Long,title:String,channel:String,thumbnail:String)
     @Query("UPDATE downloads SET bytesDone=:done,bytesTotal=:total,updatedAtMs=:now WHERE id=:id") suspend fun progress(id: Long,done: Long,total: Long,now: Long=System.currentTimeMillis())
     @Query("UPDATE downloads SET priority=(SELECT COALESCE(MAX(priority),0)+1 FROM downloads) WHERE id=:id") suspend fun prioritize(id: Long)
     @Query("DELETE FROM downloads WHERE state IN ('DONE','CANCELED')") suspend fun clearFinished()
-    @Query("UPDATE downloads SET state='PAUSED' WHERE state IN ('FETCHING','DOWNLOADING','MUXING','WAITING_NETWORK')") suspend fun pauseInterrupted()
+    @Query("UPDATE downloads SET state='PAUSED' WHERE state IN ('QUEUED','FETCHING','DOWNLOADING','MUXING','WAITING_NETWORK')") suspend fun pauseInterrupted()
     @Query("SELECT * FROM channel_audio_pref") fun channels():Flow<List<ChannelAudioPref>>
     @Query("SELECT languageTag FROM channel_audio_pref WHERE channelId=:id") suspend fun channelLanguage(id: String):String?
     @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun remember(pref: ChannelAudioPref)

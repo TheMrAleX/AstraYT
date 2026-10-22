@@ -16,6 +16,18 @@ import java.io.*
 import java.nio.ByteBuffer
 import javax.inject.*
 @Singleton class MediaStorage @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val client:OkHttpClient) {
+    // A killed mux can leave a pending MediaStore item. Reconcile it before retrying.
+    suspend fun recover(row:DownloadEntity,dir:File):Boolean=withContext(Dispatchers.IO){
+        val journal=File(dir,"output.uri")
+        if(!journal.exists())return@withContext false
+        val uri=journal.readText().trim()
+        val committed=dao.byYoutubeId(row.ytId)?.contentUri==uri
+        if(!committed && uri.startsWith("content://media/"))context.contentResolver.delete(Uri.parse(uri),null,null)
+        if(!committed)journal.delete()
+        File(context.cacheDir,"mux-${row.id}.mp4").delete()
+        File(context.cacheDir,"mux-${row.id}.webm").delete()
+        committed
+    }
     suspend fun finish(row:DownloadEntity,options:DownloadOptions,details:VideoDetails,plan:QualityOption,video:File?,audio:File?,requestedCuts:List<Cut> = emptyList())=withContext(Dispatchers.IO) {
         val audioOnly=options.audioOnly;val mime=if(audioOnly)if(plan.container=="webm")"audio/webm"else"audio/mp4" else if(plan.container=="webm")"video/webm"else"video/mp4"
         val name=details.title.replace(Regex("[\\/:*?\"<>|]"),"_").take(120)+"."+plan.container
@@ -23,7 +35,10 @@ import javax.inject.*
         val values=ContentValues().apply{put(MediaStore.MediaColumns.DISPLAY_NAME,name);put(MediaStore.MediaColumns.TITLE,details.title);put(MediaStore.MediaColumns.MIME_TYPE,mime);put(MediaStore.Audio.Media.ARTIST,details.channelName);if(Build.VERSION.SDK_INT>=29){put(MediaStore.MediaColumns.RELATIVE_PATH,(if(audioOnly)Environment.DIRECTORY_MUSIC else Environment.DIRECTORY_MOVIES)+"/AstraYT");put(MediaStore.MediaColumns.IS_PENDING,1)}else{@Suppress("DEPRECATION") val folder=File(Environment.getExternalStoragePublicDirectory(if(audioOnly)Environment.DIRECTORY_MUSIC else Environment.DIRECTORY_MOVIES),"AstraYT").apply{mkdirs()};legacy=File(folder,"${System.currentTimeMillis()}-$name");put(MediaStore.MediaColumns.DATA,legacy!!.absolutePath)}}
         val collection=if(audioOnly)MediaStore.Audio.Media.EXTERNAL_CONTENT_URI else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         val uri=context.contentResolver.insert(collection,values) ?: throw IOException("STORAGE")
+        val journal=File(context.noBackupFilesDir,"dl/${row.id}/output.uri")
         try {
+            journal.parentFile!!.mkdirs()
+            FileOutputStream(journal).use{it.write(uri.toString().toByteArray(Charsets.UTF_8));it.fd.sync()}
             val cuts=alignedCuts(if(audioOnly)audio!! else video!!,requestedCuts,details.durationMs*1000,!audioOnly)
             val removedMs=cuts.sumOf{it.endUs-it.startUs}/1000
             if(removedMs>=details.durationMs && details.durationMs>0)throw IOException("SPONSORBLOCK_EMPTY")
@@ -38,6 +53,7 @@ import javax.inject.*
                 catch(e:kotlinx.coroutines.CancellationException){throw e}
                 catch(e:Exception){val temp=File(context.cacheDir,"mux-${row.id}.${plan.container}");try{mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,null,temp.absolutePath,cuts);copyToStore(temp,uri,"wt")}finally{temp.delete()}}
             }
+            withContext(NonCancellable){
             if(Build.VERSION.SDK_INT>=29)context.contentResolver.update(uri,ContentValues().apply{put(MediaStore.MediaColumns.IS_PENDING,0)},null,null)
             val thumb=thumbTask.await();val avatar=avatarTask.await()
             val color=thumb?.let{BitmapFactory.decodeFile(it.absolutePath)}?.let{bitmap->try{Palette.from(bitmap).generate().getDominantColor(0)}finally{bitmap.recycle()}} ?: 0
@@ -45,7 +61,10 @@ import javax.inject.*
             val previous=dao.byYoutubeId(row.ytId)
             dao.insertVideo(VideoEntity(id=previous?.id ?: 0,positionMs=previous?.positionMs?.let{CutTimeline.outputTime(it*1000,cuts)?.div(1000) ?: 0}?.coerceAtMost((details.durationMs-removedMs).coerceAtLeast(0)) ?: 0,ytId=row.ytId,title=details.title,channelId=details.channelId,channelName=details.channelName,channelAvatarPath=avatar?.absolutePath.orEmpty(),thumbnailPath=thumb?.absolutePath.orEmpty(),durationMs=(details.durationMs-removedMs).coerceAtLeast(0),viewCount=details.viewCount,uploadDateMs=details.uploadDateMs,description=details.description,contentUri=uri.toString(),fileSizeBytes=size,mimeType=mime,height=plan.height,kind=row.kind,audioLangTag=details.tracks.firstOrNull{it.id==options.trackId}?.locale.orEmpty(),audioLabel=details.tracks.firstOrNull{it.id==options.trackId}?.displayName.orEmpty(),dominantColor=color,likeCount=details.likeCount,removedDurationMs=removedMs))
             previous?.takeIf{it.contentUri!=uri.toString()}?.let{old->runCatching{context.contentResolver.delete(Uri.parse(old.contentUri),null,null)}}
-        }}catch(e:Exception){context.contentResolver.delete(uri,null,null);legacy?.delete();throw e}
+            }
+        }}catch(e:Exception){withContext(NonCancellable){
+            if(dao.byYoutubeId(row.ytId)?.contentUri!=uri.toString()){context.contentResolver.delete(uri,null,null);legacy?.delete();journal.delete()}
+        };throw e}
     }
     private suspend fun copyToStore(file:File,uri:Uri,mode:String) {
         context.contentResolver.openOutputStream(uri,mode)?.use { output->
