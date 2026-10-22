@@ -9,7 +9,7 @@ import kotlinx.serialization.json.Json
 import java.util.Locale
 import javax.inject.*
 private val Context.store by preferencesDataStore("astrayt")
-@Serializable data class Settings(val onboardingDone: Boolean=false,val preferredAudioLanguage: String=Locale.getDefault().language,val askWhenAlternatives: Boolean=true,val autoPickDubbed: Boolean=false,val defaultMaxQuality: Int=1080,val maxConcurrentDownloads: Int=2,val connectionsPerStream: Int=3,val wifiOnly: Boolean=false,val animationsEnabled: Boolean=true,val amoledPureBlack: Boolean=false,val accentPreset: String="EMBER",val autoplayNext: Boolean=true,val recentSearches: List<String> = emptyList(),val lastUpdateCheck: Long=0)
+@Serializable data class Settings(val onboardingDone: Boolean=false,val preferredAudioLanguage: String=Locale.getDefault().language,val askWhenAlternatives: Boolean=true,val autoPickDubbed: Boolean=false,val defaultMaxQuality: Int=1080,val maxConcurrentDownloads: Int=2,val connectionsPerStream: Int=3,val wifiOnly: Boolean=false,val animationsEnabled: Boolean=true,val amoledPureBlack: Boolean=false,val accentPreset: String="EMBER",val autoplayNext: Boolean=true,val recentSearches: List<String> = emptyList(),val lastUpdateCheck: Long=0,val sponsorBlockEnabled:Boolean=false,val sponsorBlockCategories:Set<String> = setOf("sponsor"))
 @Singleton class Preferences @Inject constructor(@ApplicationContext private val context: Context) {
     private val key=stringPreferencesKey("settings")
     private val json=Json{ignoreUnknownKeys=true;encodeDefaults=true}

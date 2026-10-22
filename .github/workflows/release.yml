@@ -77,12 +77,9 @@ jobs:
             printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$key_path"
             test -n "$STORE_PASSWORD" && test -n "$STORE_ALIAS" && test -n "$ENTRY_PASSWORD"
           else
-            STORE_PASSWORD="$(openssl rand -hex 24)"
-            ENTRY_PASSWORD="$STORE_PASSWORD"
-            STORE_ALIAS=astrayt
-            echo "::add-mask::$STORE_PASSWORD"
-            keytool -genkeypair -keystore "$key_path" -storetype PKCS12 -alias "$STORE_ALIAS" -storepass:env STORE_PASSWORD -keypass:env ENTRY_PASSWORD -keyalg RSA -keysize 4096 -validity 10000 -dname 'CN=AstraYT Temporary Release'
-            echo '⚠️ Firma temporal: esta APK no será compatible para actualizar instalaciones firmadas por otras ejecuciones. Configura los cuatro secretos para conservar la firma.' >> "$GITHUB_STEP_SUMMARY"
+            echo '::error::Falta KEYSTORE_BASE64. Esta app ya tiene instalaciones publicadas; no se sustituirá su firma.'
+            echo 'Publicación detenida: configura KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS y KEY_PASSWORD con la clave original de AstraYT.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
           {
             echo "KEYSTORE_PATH=$key_path"
@@ -94,7 +91,22 @@ jobs:
         env:
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           RELEASE_CODE: ${{ steps.release.outputs.code }}
-        run: ./gradlew testReleaseUnitTest assembleRelease -PappVersionCode="$RELEASE_CODE" -PappVersionName="$RELEASE_VERSION"
+        run: ./gradlew testReleaseUnitTest assembleRelease lintRelease -PappVersionCode="$RELEASE_CODE" -PappVersionName="$RELEASE_VERSION"
+      - name: Verify update signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          signer=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner | sort -V | tail -n 1)
+          test -n "$signer"
+          expected=c4a7fec889a3550494efea270d3e3c8a76219792d11f41e12946f2e8a04763df
+          for abi in arm64-v8a armeabi-v7a; do
+            apk="app/build/outputs/apk/release/app-$abi-release.apk"
+            certificate=$("$signer" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            if [ "$certificate" != "$expected" ]; then
+              echo '::error::La firma no coincide con AstraYT 0.0.4. No se publicará una actualización incompatible.'
+              exit 1
+            fi
+          done
       - name: Publish ARM64 and ARMv7 APKs
         env:
           GH_TOKEN: ${{ github.token }}

@@ -6,7 +6,7 @@ La firma local lee `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSW
 GitHub Actions usa cuatro secretos: `KEYSTORE_BASE64` (archivo codificado),
 `KEYSTORE_PASSWORD`, `KEY_ALIAS` y `KEY_PASSWORD`.
 Conserva la clave: Android exige la misma firma para instalar actualizaciones.
-Sin secretos, CI genera una firma temporal y advierte que no permite actualizar.
+CI exige la clave original y comprueba el certificado antes de publicar actualizaciones.
 Un push a main genera la siguiente release; la ejecución manual acepta una versión.
 APKs: `AstraYT-vVERSION-arm64-v8a.apk` y `AstraYT-vVERSION-armeabi-v7a.apk`, con SHA-256.
 El extractor se comprueba semanalmente y solo se actualiza si compila.

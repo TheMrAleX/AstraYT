@@ -259,7 +259,9 @@ public final class YoutubeJavaScriptPlayerManager {
                     YoutubeThrottlingParameterUtils.DEOBFUSCATION_FUNCTION_NAME,
                     obfuscatedThrottlingParameter);
 
-            if (isNullOrEmpty(deobfuscatedThrottlingParameter)) {
+            if (isNullOrEmpty(deobfuscatedThrottlingParameter)
+                    || "undefined".equals(deobfuscatedThrottlingParameter)
+                    || deobfuscatedThrottlingParameter.startsWith("enhanced_except_")) {
                 throw new IllegalStateException("Extracted n-parameter is empty");
             }
 

@@ -16,7 +16,7 @@ import java.io.*
 import java.nio.ByteBuffer
 import javax.inject.*
 @Singleton class MediaStorage @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val client:OkHttpClient) {
-    suspend fun finish(row:DownloadEntity,options:DownloadOptions,details:VideoDetails,plan:QualityOption,video:File?,audio:File?)=withContext(Dispatchers.IO) {
+    suspend fun finish(row:DownloadEntity,options:DownloadOptions,details:VideoDetails,plan:QualityOption,video:File?,audio:File?,requestedCuts:List<Cut> = emptyList())=withContext(Dispatchers.IO) {
         val audioOnly=options.audioOnly;val mime=if(audioOnly)if(plan.container=="webm")"audio/webm"else"audio/mp4" else if(plan.container=="webm")"video/webm"else"video/mp4"
         val name=details.title.replace(Regex("[\\/:*?\"<>|]"),"_").take(120)+"."+plan.container
         var legacy:File?=null
@@ -24,34 +24,113 @@ import javax.inject.*
         val collection=if(audioOnly)MediaStore.Audio.Media.EXTERNAL_CONTENT_URI else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         val uri=context.contentResolver.insert(collection,values) ?: throw IOException("STORAGE")
         try {
-            if(audioOnly || plan.audio==null){context.contentResolver.openOutputStream(uri,"w")!!.use{output->FileInputStream(if(audioOnly)audio ?: throw IOException("Missing audio")else video ?: throw IOException("Missing video")).use{it.copyTo(output,1024*1024)}}}
+            val cuts=alignedCuts(if(audioOnly)audio!! else video!!,requestedCuts,details.durationMs*1000,!audioOnly)
+            val removedMs=cuts.sumOf{it.endUs-it.startUs}/1000
+            if(removedMs>=details.durationMs && details.durationMs>0)throw IOException("SPONSORBLOCK_EMPTY")
+            // Fetch artwork while copying samples, so a slow thumbnail is not added to mux time.
+            coroutineScope {
+            val art=File(context.filesDir,"art").apply{mkdirs()}
+            val thumbTask=async {saveArt(details.thumbnail,File(art,"${row.ytId}.webp"),720)}
+            val avatarTask=async {saveArt(details.channelAvatar,File(art,"channel-${details.channelId.hashCode()}.webp"),192)}
+            if(cuts.isEmpty() && (audioOnly || plan.audio==null)){copyToStore(if(audioOnly)audio ?: throw IOException("Missing audio")else video ?: throw IOException("Missing video"),uri,"w")}
             else {
-                try {context.contentResolver.openFileDescriptor(uri,"rw")!!.use{fd->mux(video!!,audio!!,plan.container,fd.fileDescriptor,null)}}
+                try {context.contentResolver.openFileDescriptor(uri,"rw")!!.use{fd->mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,fd.fileDescriptor,null,cuts)}}
                 catch(e:kotlinx.coroutines.CancellationException){throw e}
-                catch(e:Exception){val temp=File(context.cacheDir,"mux-${row.id}.${plan.container}");try{mux(video!!,audio!!,plan.container,null,temp.absolutePath);context.contentResolver.openOutputStream(uri,"wt")!!.use{out->temp.inputStream().use{it.copyTo(out,1024*1024)}}}finally{temp.delete()}}
+                catch(e:Exception){val temp=File(context.cacheDir,"mux-${row.id}.${plan.container}");try{mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,null,temp.absolutePath,cuts);copyToStore(temp,uri,"wt")}finally{temp.delete()}}
             }
             if(Build.VERSION.SDK_INT>=29)context.contentResolver.update(uri,ContentValues().apply{put(MediaStore.MediaColumns.IS_PENDING,0)},null,null)
-            val art=File(context.filesDir,"art").apply{mkdirs()};val thumb=saveArt(details.thumbnail,File(art,"${row.ytId}.webp"),720);val avatar=saveArt(details.channelAvatar,File(art,"channel-${details.channelId.hashCode()}.webp"),192)
+            val thumb=thumbTask.await();val avatar=avatarTask.await()
             val color=thumb?.let{BitmapFactory.decodeFile(it.absolutePath)}?.let{bitmap->try{Palette.from(bitmap).generate().getDominantColor(0)}finally{bitmap.recycle()}} ?: 0
             val size=context.contentResolver.openFileDescriptor(uri,"r")?.use{it.statSize}?.coerceAtLeast(0) ?: 0
             val previous=dao.byYoutubeId(row.ytId)
-            dao.insertVideo(VideoEntity(id=previous?.id ?: 0,positionMs=previous?.positionMs?.coerceAtMost(details.durationMs) ?: 0,ytId=row.ytId,title=details.title,channelId=details.channelId,channelName=details.channelName,channelAvatarPath=avatar?.absolutePath.orEmpty(),thumbnailPath=thumb?.absolutePath.orEmpty(),durationMs=details.durationMs,viewCount=details.viewCount,uploadDateMs=details.uploadDateMs,description=details.description,contentUri=uri.toString(),fileSizeBytes=size,mimeType=mime,height=plan.height,kind=row.kind,audioLangTag=details.tracks.firstOrNull{it.id==options.trackId}?.locale.orEmpty(),audioLabel=details.tracks.firstOrNull{it.id==options.trackId}?.displayName.orEmpty(),dominantColor=color))
+            dao.insertVideo(VideoEntity(id=previous?.id ?: 0,positionMs=previous?.positionMs?.let{CutTimeline.outputTime(it*1000,cuts)?.div(1000) ?: 0}?.coerceAtMost((details.durationMs-removedMs).coerceAtLeast(0)) ?: 0,ytId=row.ytId,title=details.title,channelId=details.channelId,channelName=details.channelName,channelAvatarPath=avatar?.absolutePath.orEmpty(),thumbnailPath=thumb?.absolutePath.orEmpty(),durationMs=(details.durationMs-removedMs).coerceAtLeast(0),viewCount=details.viewCount,uploadDateMs=details.uploadDateMs,description=details.description,contentUri=uri.toString(),fileSizeBytes=size,mimeType=mime,height=plan.height,kind=row.kind,audioLangTag=details.tracks.firstOrNull{it.id==options.trackId}?.locale.orEmpty(),audioLabel=details.tracks.firstOrNull{it.id==options.trackId}?.displayName.orEmpty(),dominantColor=color,likeCount=details.likeCount,removedDurationMs=removedMs))
             previous?.takeIf{it.contentUri!=uri.toString()}?.let{old->runCatching{context.contentResolver.delete(Uri.parse(old.contentUri),null,null)}}
-        }catch(e:Exception){context.contentResolver.delete(uri,null,null);legacy?.delete();throw e}
+        }}catch(e:Exception){context.contentResolver.delete(uri,null,null);legacy?.delete();throw e}
     }
-    private suspend fun mux(video:File,audio:File,container:String,fd:FileDescriptor?,path:String?) {
-        val mux=if(fd!=null)MediaMuxer(fd,if(container=="webm")MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) else MediaMuxer(path!!,if(container=="webm")MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+    private suspend fun copyToStore(file:File,uri:Uri,mode:String) {
+        context.contentResolver.openOutputStream(uri,mode)?.use { output->
+            file.inputStream().use { input->
+                val buffer=ByteArray(1024*1024)
+                while(true){currentCoroutineContext().ensureActive();val count=input.read(buffer);if(count<0)break;output.write(buffer,0,count)}
+            }
+        } ?: throw IOException("STORAGE")
+    }
+    private fun alignedCuts(file:File,cuts:List<Cut>,duration:Long,video:Boolean):List<Cut> {
+        val normalized=CutTimeline.normalize(cuts,duration)
+        if(!video || normalized.isEmpty())return normalized
+        val extractor=MediaExtractor()
+        try {
+            extractor.setDataSource(file.absolutePath)
+            val track=(0 until extractor.trackCount).firstOrNull{extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("video/")==true} ?: throw IOException("Missing video track")
+            extractor.selectTrack(track)
+            return CutTimeline.normalize(normalized.map { cut->
+                extractor.seekTo(cut.startUs,MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                val start=extractor.sampleTime.coerceAtLeast(0)
+                extractor.seekTo(cut.endUs,MediaExtractor.SEEK_TO_NEXT_SYNC)
+                val end=extractor.sampleTime.takeIf{it>=cut.endUs} ?: duration
+                Cut(start,end)
+            },duration)
+        }finally{extractor.release()}
+    }
+    private suspend fun mux(video:File,audio:File?,container:String,fd:FileDescriptor?,path:String?,cuts:List<Cut>) {
+        val format=if(container=="webm")MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
+        val mux=if(fd!=null)MediaMuxer(fd,format)else MediaMuxer(path!!,format)
         val extractors=mutableListOf<MediaExtractor>();var started=false
         try {
-            val tracks=listOf(video to "video/",audio to "audio/").map{(file,prefix)->val ex=MediaExtractor().apply{setDataSource(file.absolutePath)};extractors.add(ex);val index=(0 until ex.trackCount).firstOrNull{ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith(prefix)==true} ?: throw IOException("Missing media track");ex.selectTrack(index);ex to mux.addTrack(ex.getTrackFormat(index))}
-            mux.start();started=true;val buffer=ByteBuffer.allocate(1024*1024);val info=MediaCodec.BufferInfo()
-            tracks.forEach{(extractor,index)->while(true){currentCoroutineContext().ensureActive();buffer.clear();val length=extractor.readSampleData(buffer,0);if(length<0)break;val sampleFlags=extractor.sampleFlags;if(sampleFlags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED != 0)throw IOException("Encrypted sample");var outputFlags=0;if(sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0)outputFlags=outputFlags or MediaCodec.BUFFER_FLAG_KEY_FRAME;if(sampleFlags and MediaExtractor.SAMPLE_FLAG_PARTIAL_FRAME != 0)outputFlags=outputFlags or MediaCodec.BUFFER_FLAG_PARTIAL_FRAME;info.set(0,length,extractor.sampleTime,outputFlags);mux.writeSampleData(index,buffer,info);extractor.advance()}}
+            // One extractor per selected track permits timestamp ordered interleaving.
+            val sources=if(audio==null)listOf(video)else listOf(video,audio)
+            val tracks=mutableListOf<Pair<MediaExtractor,Int>>()
+            var capacity=if(Build.VERSION.SDK_INT>=28)1024*1024 else 4*1024*1024
+            sources.forEachIndexed { source,file->
+                val probe=MediaExtractor()
+                val indices=try{probe.setDataSource(file.absolutePath);(0 until probe.trackCount).filter { index->
+                    val mime=probe.getTrackFormat(index).getString(MediaFormat.KEY_MIME).orEmpty()
+                    if(audio==null)mime.startsWith("video/")||mime.startsWith("audio/") else mime.startsWith(if(source==0)"video/"else"audio/")
+                }}finally{probe.release()}
+                indices.forEach { index->
+                    val ex=MediaExtractor();extractors.add(ex);ex.setDataSource(file.absolutePath);ex.selectTrack(index)
+                    val track=ex.getTrackFormat(index)
+                    if(track.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE))capacity=maxOf(capacity,track.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE))
+                    tracks.add(ex to mux.addTrack(track))
+                }
+            }
+            check(tracks.isNotEmpty())
+            mux.start();started=true
+            var buffer=ByteBuffer.allocateDirect(capacity);val info=MediaCodec.BufferInfo()
+            while(true) {
+                currentCoroutineContext().ensureActive()
+                var next:Pair<MediaExtractor,Int>?=null
+                var earliest=Long.MAX_VALUE
+                for(track in tracks){val time=track.first.sampleTime;if(time>=0 && time<earliest){next=track;earliest=time}}
+                if(next==null)break
+                val (extractor,index)=next
+                val original=extractor.sampleTime
+                val output=CutTimeline.outputTime(original,cuts)
+                if(output==null) {
+                    // Seek over excluded spans instead of reading every removed sample.
+                    val end=cuts.first{original>=it.startUs && original<it.endUs}.endUs
+                    extractor.seekTo(end,MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+                    while(extractor.sampleTime in 0 until end){currentCoroutineContext().ensureActive();if(!extractor.advance())break}
+                    continue
+                }
+                val size=if(Build.VERSION.SDK_INT>=28)extractor.sampleSize else -1L
+                if(size>buffer.capacity())buffer=ByteBuffer.allocateDirect(Math.toIntExact(size))
+                buffer.clear();val length=extractor.readSampleData(buffer,0);if(length<0)break
+                val flags=extractor.sampleFlags
+                if(flags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED!=0)throw IOException("Encrypted sample")
+                var outputFlags=0
+                if(flags and MediaExtractor.SAMPLE_FLAG_SYNC!=0)outputFlags=outputFlags or MediaCodec.BUFFER_FLAG_KEY_FRAME
+                if(flags and MediaExtractor.SAMPLE_FLAG_PARTIAL_FRAME!=0)outputFlags=outputFlags or MediaCodec.BUFFER_FLAG_PARTIAL_FRAME
+                info.set(0,length,output,outputFlags);mux.writeSampleData(index,buffer,info);extractor.advance()
+            }
             mux.stop();started=false
         }finally{if(started)runCatching{mux.stop()};mux.release();extractors.forEach{it.release()}}
     }
-    private fun saveArt(url:String,file:File,width:Int):File?=runCatching {
+    private suspend fun saveArt(url:String,file:File,width:Int):File?=runCatching {
         if(url.isBlank())return null
-        client.newCall(Request.Builder().url(url).build()).execute().use{r->if(!r.isSuccessful)return null;val data=r.body.bytes();val bounds=BitmapFactory.Options().apply{inJustDecodeBounds=true};BitmapFactory.decodeByteArray(data,0,data.size,bounds);var sample=1;while(bounds.outWidth/sample>width*2)sample*=2;val bitmap=BitmapFactory.decodeByteArray(data,0,data.size,BitmapFactory.Options().apply{inSampleSize=sample}) ?: return null;val scaled=if(bitmap.width>width)Bitmap.createScaledBitmap(bitmap,width,(bitmap.height.toLong()*width/bitmap.width).toInt().coerceAtLeast(1),true)else bitmap
+        currentCoroutineContext().ensureActive()
+        val call=client.newCall(Request.Builder().url(url).build()).apply{timeout().timeout(5,java.util.concurrent.TimeUnit.SECONDS)}
+        call.execute().use{r->if(!r.isSuccessful)return null;val data=r.body.bytes();val bounds=BitmapFactory.Options().apply{inJustDecodeBounds=true};BitmapFactory.decodeByteArray(data,0,data.size,bounds);var sample=1;while(bounds.outWidth/sample>width*2)sample*=2;val bitmap=BitmapFactory.decodeByteArray(data,0,data.size,BitmapFactory.Options().apply{inSampleSize=sample}) ?: return null;val scaled=if(bitmap.width>width)Bitmap.createScaledBitmap(bitmap,width,(bitmap.height.toLong()*width/bitmap.width).toInt().coerceAtLeast(1),true)else bitmap
             file.outputStream().use{out->@Suppress("DEPRECATION") scaled.compress(Bitmap.CompressFormat.WEBP,85,out)};if(scaled!==bitmap)scaled.recycle();bitmap.recycle();file}
     }.getOrNull()
     suspend fun pruneMissing()=withContext(Dispatchers.IO) {

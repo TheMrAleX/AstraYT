@@ -120,11 +120,12 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
         }
     }
 }
-@Composable fun QueueScreen(model:QueueModel) {
+@Composable fun QueueScreen(model:QueueModel,onPlayDownload:(Long)->Unit) {
     val rows by model.state.collectAsStateWithLifecycle();val progress by model.progress.collectAsStateWithLifecycle();val c=SingularityTheme.colors
     var menu by remember{mutableStateOf<DownloadEntity?>(null)}
     var completedExpanded by rememberSaveable{mutableStateOf(false)}
     val pending by model.pending.collectAsStateWithLifecycle()
+    val swipeThreshold=with(LocalDensity.current){96.dp.toPx()}
     Column(Modifier.fillMaxSize().padding(horizontal=20.dp)) {
         PageHeading(stringResource(R.string.queue),stringResource(R.string.queue_subtitle))
         if(rows.isNotEmpty())Text(pluralStringResource(R.plurals.queue_activity,rows.count{it.state in setOf("FETCHING","DOWNLOADING","MUXING")},rows.count{it.state in setOf("FETCHING","DOWNLOADING","MUXING")},Formatters.bytes(progress.values.sumOf{it.speed})),color=c.accent,style=SingularityTheme.type.label)
@@ -137,32 +138,43 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                 if(group!="DONE" || completedExpanded)items(entries,key={it.id},contentType={"download"}){row->
                     val p=progress[row.id]
                     var drag by remember(row.id){mutableFloatStateOf(0f)}
-                    GlassCard(Modifier.offset{IntOffset(drag.toInt(),0)}.pointerInput(row.id){detectHorizontalDragGestures(onDragEnd={if(drag < -120f && row.state!="DONE")model.cancelWithUndo(row.id) else if(drag>120f)model.priority(row.id);drag=0f},onDragCancel={drag=0f}){change,amount->change.consume();drag=(drag+amount).coerceIn(-200f,200f)}}.pointerInput(row.id){detectTapGestures(onLongPress={menu=row})}) {
-                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                        coil3.compose.AsyncImage(row.thumbnailPath,null,Modifier.width(64.dp).aspectRatio(16f/9).clip(RoundedCornerShape(8.dp)).background(c.high),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
-                        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                    GlassCard(Modifier.offset{IntOffset(drag.toInt(),0)}.pointerInput(row.id,row.state,swipeThreshold){detectHorizontalDragGestures(onDragEnd={if(drag < -swipeThreshold && row.state!="DONE")model.cancelWithUndo(row.id) else if(drag>swipeThreshold)model.priority(row.id);drag=0f},onDragCancel={drag=0f}){change,amount->change.consume();drag=(drag+amount).coerceIn(-swipeThreshold*1.2f,swipeThreshold*1.2f)}}.pointerInput(row.id){detectTapGestures(onLongPress={menu=row})}) {
+                    val options=remember(row.optionsJson){runCatching{kotlinx.serialization.json.Json.decodeFromString<con.themralex.astrayt.download.DownloadOptions>(row.optionsJson)}.getOrNull()}
+                    val fraction=(p?.fraction ?: if(row.bytesTotal>0)row.bytesDone.toFloat()/row.bytesTotal else 0f).coerceIn(0f,1f)
+                    val resume=row.state in setOf("PAUSED","FAILED")
+                    val statusColor=when(row.state){"FAILED"->c.error;"DONE"->c.success;"PAUSED","QUEUED"->c.low;else->c.accent}
+                    Row(verticalAlignment=Alignment.Top,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                        Box(Modifier.width(104.dp).aspectRatio(16f/9).clip(RoundedCornerShape(10.dp)).background(c.high)) {
+                            coil3.compose.AsyncImage(row.thumbnailPath,null,Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
+                            Text(if(options?.audioOnly==true)stringResource(R.string.audio)else "${options?.height ?: 1080}p",color=Color.White,style=SingularityTheme.type.caption,modifier=Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color.Black.copy(alpha=.8f),RoundedCornerShape(4.dp)).padding(horizontal=4.dp,vertical=2.dp))
+                        }
+                        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(5.dp)) {
                             Text(row.title,color=c.text,style=SingularityTheme.type.strong,maxLines=2,overflow=TextOverflow.Ellipsis)
-                            if(row.channelName.isNotBlank())Text(row.channelName,color=c.mid,style=SingularityTheme.type.caption,maxLines=1,overflow=TextOverflow.Ellipsis)
+                            if(row.channelName.isNotBlank())Text(row.channelName,color=c.low,style=SingularityTheme.type.caption,maxLines=1,overflow=TextOverflow.Ellipsis)
                         }
                         SingularityIcon(Icons.Rounded.MoreVert,stringResource(R.string.options),{menu=row})
                     }
-                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                        val actionable=row.state !in setOf("DONE","CANCELED")
-                        val resume=row.state in setOf("PAUSED","FAILED")
-                        val actionLabel=stringResource(if(resume)R.string.resume else R.string.pause)
-                        AccretionRing(p?.fraction ?: if(row.bytesTotal>0)row.bytesDone.toFloat()/row.bytesTotal else 0f,48.dp,when(row.state){"PAUSED"->"paused";"FAILED"->"error";"DONE"->"done";"MUXING","FETCHING","WAITING_NETWORK"->"indeterminate";else->"active"},Modifier.then(if(actionable)Modifier.semantics{contentDescription=actionLabel}.clickable{if(resume)model.resume(row.id)else model.pause(row.id)}else Modifier))
+                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                         Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                            AccretionProgressBar(p?.fraction ?: if(row.bytesTotal>0)row.bytesDone.toFloat()/row.bytesTotal else 0f)
-                            Text(if(row.state=="FAILED")stringResource(Errors.string(row.errorCode))else if(p!=null && row.state=="DOWNLOADING")"${(p.fraction*100).toInt()} % · ${Formatters.bytes(p.speed)}/s · ${Formatters.duration(p.eta.coerceAtLeast(0)*1000)}"else stringResource(stateResource(row.state)),color=if(row.state=="FAILED")c.error else c.mid,style=SingularityTheme.type.caption)
+                            Row(verticalAlignment=Alignment.CenterVertically) {
+                                Box(Modifier.size(6.dp).background(statusColor,CircleShape));Spacer(Modifier.width(6.dp))
+                                Text(stringResource(stateResource(row.state)),color=statusColor,style=SingularityTheme.type.label,modifier=Modifier.weight(1f))
+                                if(row.state in setOf("DOWNLOADING","PAUSED"))Text("${(fraction*100).toInt()} %",color=c.text,style=SingularityTheme.type.label.copy(fontFeatureSettings="tnum"))
+                            }
+                            if(row.state in setOf("FETCHING","MUXING","WAITING_NETWORK"))QueueActivityLine()else AccretionProgressBar(if(row.state=="DONE")1f else fraction,height=3.dp)
+                            val done=p?.done ?: row.bytesDone;val total=p?.total ?: row.bytesTotal
+                            if(row.state=="FAILED")Text(stringResource(Errors.string(row.errorCode)),color=c.error,style=SingularityTheme.type.caption)
+                            else if(total>0)Text("${Formatters.bytes(done)} / ${Formatters.bytes(total)}"+(if(row.state=="DOWNLOADING" && (p?.speed ?: 0)>0)" · ${Formatters.bytes(p!!.speed)}/s · ${Formatters.duration(p.eta.coerceAtLeast(0)*1000)}"else ""),color=c.low,style=SingularityTheme.type.caption.copy(fontFeatureSettings="tnum"))
                         }
+                        if(row.state !in setOf("DONE","CANCELED"))SingularityIcon(if(resume)Icons.Rounded.PlayArrow else Icons.Rounded.Pause,stringResource(if(row.state=="FAILED")R.string.retry else if(resume)R.string.resume else R.string.pause),{if(resume)model.resume(row.id)else model.pause(row.id)},Modifier.background(c.high,CircleShape))
+                        else if(row.state=="DONE")SingularityIcon(Icons.Rounded.PlayCircle,stringResource(R.string.play),{onPlayDownload(row.id)})else Icon(Icons.Rounded.Cancel,null,tint=statusColor,modifier=Modifier.padding(12.dp).size(24.dp))
                     }
-                    if(row.state=="FAILED")SingularityButton(stringResource(R.string.retry),{model.resume(row.id)},variant="tertiary")
                     if(row.id in pending)Toast(stringResource(R.string.cancel_pending),action=stringResource(R.string.undo),onAction={model.undoCancel(row.id)})
                 }}
             }}
         }
     }
-    menu?.let{row->SingularitySheet({menu=null}){if(row.state in setOf("DONE","CANCELED"))SingularityButton(stringResource(R.string.clear_done),{model.clear();menu=null},variant="secondary")else {SingularityButton(stringResource(if(row.state in setOf("PAUSED","FAILED"))R.string.resume else R.string.pause),{if(row.state in setOf("PAUSED","FAILED"))model.resume(row.id)else model.pause(row.id);menu=null});SingularityButton(stringResource(R.string.priority),{model.priority(row.id);menu=null},variant="secondary");SingularityButton(stringResource(R.string.cancel),{model.cancel(row.id);menu=null},variant="tertiary")}}}
+    menu?.let{row->SingularitySheet({menu=null}){val context=LocalContext.current;if(row.state=="DONE")SingularityButton(stringResource(R.string.play),{onPlayDownload(row.id);menu=null});SingularityButton(stringResource(R.string.copy_link),{context.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("YouTube",row.url));menu=null},variant="secondary");SingularityButton(stringResource(R.string.open_youtube),{external(context,row.url);menu=null},variant="secondary");if(row.state in setOf("DONE","CANCELED"))SingularityButton(stringResource(R.string.clear_done),{model.clear();menu=null},variant="secondary")else {SingularityButton(stringResource(if(row.state in setOf("PAUSED","FAILED"))R.string.resume else R.string.pause),{if(row.state in setOf("PAUSED","FAILED"))model.resume(row.id)else model.pause(row.id);menu=null});SingularityButton(stringResource(R.string.priority),{model.priority(row.id);menu=null},variant="secondary");SingularityButton(stringResource(R.string.cancel),{model.cancel(row.id);menu=null},variant="tertiary")}}}
 }
 fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNLOADING"->R.string.downloading;"MUXING"->R.string.muxing;"WAITING_NETWORK"->R.string.waiting_network;"PAUSED"->R.string.paused;"DONE"->R.string.done;"FAILED"->R.string.failed;"CANCELED"->R.string.canceled;else->R.string.queued}
 @Composable fun LibraryScreen(model:LibraryModel,onPlay:(VideoEntity,List<VideoEntity>,Boolean)->Unit,onCapture:()->Unit,onChannel:(String)->Unit) {
@@ -189,7 +201,7 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
     @Composable fun card(video:VideoEntity) {
         Box {
             VideoCard(video.title,libraryMeta(context,video),video.thumbnailPath,Formatters.duration(video.durationMs),if(video.durationMs>0)video.positionMs.toFloat()/video.durationMs else 0f,
-                {if(selected.isNotEmpty())select(video)else onPlay(video,all,false)},{menu=video},onLongClick={haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress);select(video)},highlight=search)
+                {if(selected.isNotEmpty())select(video)else onPlay(video,all,false)},{menu=video},onLongClick={haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress);select(video)},highlight=search,avatar=video.channelAvatarPath)
             if(selected.isNotEmpty())Box(Modifier.padding(8.dp).size(28.dp).background(if(video.id in selected)c.accent else c.top,RoundedCornerShape(8.dp)).border(1.dp,c.border,RoundedCornerShape(8.dp)).clickable{select(video)},contentAlignment=Alignment.Center){if(video.id in selected)Text("✓",color=c.void)}
         }
     }
@@ -220,6 +232,7 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
             if(search.isBlank() && recentSearches.isNotEmpty())Row(verticalAlignment=Alignment.CenterVertically){Box(Modifier.weight(1f)){FilterChipRow(recentSearches,-1,{model.search(recentSearches[it])})};SingularityIcon(Icons.Rounded.Clear,stringResource(R.string.clear),{model.clearSearches()})}
         }
         FilterChipRow(labels,filter,{filter=it})
+        if(all.isNotEmpty() && paged.itemCount==0 && paged.loadState.refresh is LoadState.NotLoading)Text(stringResource(R.string.no_results),color=c.mid,modifier=Modifier.padding(vertical=16.dp))
         if(all.isEmpty())EmptyState(stringResource(R.string.empty_library),stringResource(R.string.empty_library_body),stringResource(R.string.capture_video),onCapture)
         BoxWithConstraints(Modifier.weight(1f)) {
             if(maxWidth>=600.dp)LazyVerticalGrid(columns=GridCells.Adaptive(340.dp),verticalArrangement=Arrangement.spacedBy(20.dp),horizontalArrangement=Arrangement.spacedBy(16.dp)) {
@@ -264,6 +277,16 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
             SettingsRow(Icons.Rounded.Wifi,stringResource(R.string.wifi_only),trailing={SingularitySwitch(settings.wifiOnly,{v->model.change{it.copy(wifiOnly=v)}},stringResource(R.string.wifi_only))})
             SettingsRow(Icons.Rounded.Folder,stringResource(R.string.folder),subtitle="Movies/AstraYT · Music/AstraYT")
             SettingsRow(Icons.Rounded.BatteryChargingFull,stringResource(R.string.battery),onClick={runCatching{context.startActivity(Intent(SystemSettings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))}})
+        }
+        SectionHeader("SponsorBlock")
+        GlassCard {
+            SettingsRow(Icons.Rounded.ContentCut,stringResource(R.string.sponsorblock_enable),subtitle=stringResource(R.string.sponsorblock_explanation),trailing={SingularitySwitch(settings.sponsorBlockEnabled,{v->model.change{it.copy(sponsorBlockEnabled=v)}},stringResource(R.string.sponsorblock_enable))})
+            if(settings.sponsorBlockEnabled) {
+                listOf("sponsor" to R.string.sb_sponsor,"intro" to R.string.sb_intro,"outro" to R.string.sb_outro,"selfpromo" to R.string.sb_selfpromo,"interaction" to R.string.sb_interaction,"music_offtopic" to R.string.sb_music,"preview" to R.string.sb_preview,"filler" to R.string.sb_filler).forEach { (key,label)->
+                    SettingsRow(Icons.Rounded.Remove,stringResource(label),trailing={SingularitySwitch(key in settings.sponsorBlockCategories,{v->model.change{it.copy(sponsorBlockCategories=if(v)it.sponsorBlockCategories+key else it.sponsorBlockCategories-key)}},stringResource(label))})
+                }
+                Text(stringResource(R.string.sponsorblock_cuts),color=c.low,style=SingularityTheme.type.caption)
+            }
         }
         SectionHeader(stringResource(R.string.appearance))
         GlassCard {

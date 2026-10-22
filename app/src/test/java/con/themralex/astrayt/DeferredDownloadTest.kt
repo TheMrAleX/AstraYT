@@ -76,6 +76,12 @@ class DeferredDownloadTest {
         assertEquals("251",selected.audio?.id)
         assertEquals("webm",selected.container)
     }
+    @Test fun incompatibleAdaptiveFormatsDoNotHideWorkingProgressiveVideo() {
+        val d=details(720).copy(videos=listOf(MediaStream("unknown","https://example.test/v","mp4","av01",height=1080,videoOnly=true),MediaStream("18","https://example.test/p","mp4","avc1,mp4a",height=360)))
+        val selected=StreamPlanner.options(d,track).single()
+        assertEquals("18",selected.video?.id)
+        assertNull(selected.audio)
+    }
     @Test fun audioWithoutM4aCanStillDownloadAsWebm() {
         val opus=MediaStream("251","https://example.test/a","webm","opus",160000)
         val t=track.copy(streams=listOf(opus))

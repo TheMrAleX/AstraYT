@@ -75,7 +75,7 @@ import javax.inject.Inject
                 Box(Modifier.weight(1f)) {
                     NavHost(navController=nav,startDestination=Capture,enterTransition={fadeIn()},exitTransition={fadeOut()}) {
                         composable<Capture>{Column{if(update!=null)SingularityButton(stringResource(R.string.update_available),{external(context,update!!)},Modifier.fillMaxWidth(),"secondary");Box(Modifier.weight(1f)){CaptureScreen(capture,prefs,all,{v->main.play(v,all);nav.navigate(PlayerRoute)})}}}
-                        composable<Queue>{QueueScreen(queue)}
+                        composable<Queue>{QueueScreen(queue){id->main.playDownloaded(id);nav.navigate(PlayerRoute)}}
                         composable<Library>{LibraryScreen(library,{v,list,audio->main.play(v,list,audio);nav.navigate(PlayerRoute)},{nav.navigate(Capture)},{id->nav.navigate(ChannelRoute(id))})}
                         composable<SettingsRoute>{SettingsScreen(settings,all)}
                         composable<ChannelRoute>{backStack->ChannelScreen(backStack.toRoute<ChannelRoute>().id,all,{v,list->main.play(v,list);nav.navigate(PlayerRoute)})}

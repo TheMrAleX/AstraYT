@@ -164,10 +164,24 @@ import kotlin.random.Random
     }
 }
 
-@Composable fun VideoCard(title: String,meta: String,thumbnail: String?,duration: String,progress: Float=0f,onClick: ()->Unit,onMore: ()->Unit,modifier: Modifier=Modifier,onLongClick: ()->Unit={},highlight:String="") {
-    Box(modifier.clip(RoundedCornerShape(16.dp)).combinedClickable(onClick=onClick,onLongClick=onLongClick)) {
-        MetadataCard(title,meta,thumbnail,duration,watchedProgress=progress,highlight=highlight)
-        SingularityIcon(Icons.Rounded.MoreVert,androidx.compose.ui.res.stringResource(con.themralex.astrayt.R.string.options),onMore,Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.Black.copy(alpha=.6f),RoundedCornerShape(12.dp)))
+@Composable fun VideoCard(title: String,meta: String,thumbnail: String?,duration: String,progress: Float=0f,onClick: ()->Unit,onMore: ()->Unit,modifier: Modifier=Modifier,onLongClick: ()->Unit={},highlight:String="",avatar:String?=null) {
+    val c=SingularityTheme.colors
+    Column(modifier.fillMaxWidth().combinedClickable(onClick=onClick,onLongClick=onLongClick),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(16f/9).clip(RoundedCornerShape(12.dp)).background(c.high)) {
+            AsyncImage(thumbnail,null,Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
+            Text(duration,color=Color.White,style=SingularityTheme.type.caption.copy(fontFeatureSettings="tnum"),modifier=Modifier.align(Alignment.BottomEnd).padding(8.dp).background(Color.Black.copy(alpha=.85f),RoundedCornerShape(4.dp)).padding(horizontal=5.dp,vertical=3.dp))
+            if(progress>0)Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color.White.copy(alpha=.2f))){Box(Modifier.fillMaxWidth(progress.coerceIn(0f,1f)).fillMaxHeight().background(Color(0xFFFF3636)))}
+        }
+        Row(verticalAlignment=Alignment.Top,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+            if(!avatar.isNullOrBlank())AsyncImage(avatar,null,Modifier.size(36.dp).clip(CircleShape).background(c.high),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
+            else Box(Modifier.size(36.dp).clip(CircleShape).background(c.high),contentAlignment=Alignment.Center){Icon(Icons.Rounded.Person,null,tint=c.low,modifier=Modifier.size(20.dp))}
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                val display=remember(title,highlight){androidx.compose.ui.text.buildAnnotatedString{append(title);if(highlight.isNotBlank()){var start=title.indexOf(highlight,ignoreCase=true);while(start>=0){addStyle(androidx.compose.ui.text.SpanStyle(color=c.corona),start,start+highlight.length);start=title.indexOf(highlight,start+highlight.length,ignoreCase=true)}}}}
+                Text(display,color=c.text,style=SingularityTheme.type.strong,maxLines=2,overflow=TextOverflow.Ellipsis)
+                Text(meta,color=c.mid,style=SingularityTheme.type.caption,maxLines=2,overflow=TextOverflow.Ellipsis)
+            }
+            SingularityIcon(Icons.Rounded.MoreVert,androidx.compose.ui.res.stringResource(con.themralex.astrayt.R.string.options),onMore)
+        }
     }
 }
 

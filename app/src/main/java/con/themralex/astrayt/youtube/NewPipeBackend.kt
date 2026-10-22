@@ -13,7 +13,7 @@ import org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerMana
 import con.themralex.astrayt.core.util.Errors
 import javax.inject.*
 
-@Singleton class NewPipeBackend @Inject constructor(private val client:OkHttpClient,private val preferences:Preferences):YoutubeBackend {
+@Singleton class NewPipeBackend @Inject constructor(private val client:OkHttpClient,private val preferences:Preferences,@dagger.hilt.android.qualifiers.ApplicationContext private val context:android.content.Context):YoutubeBackend {
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private val mutex=Mutex()
     private val cache=BoundedCache<String,VideoDetails>(32)
@@ -25,7 +25,7 @@ import javax.inject.*
     private suspend fun init() {
         val language=preferences.flow.first().preferredAudioLanguage
         mutex.withLock {
-            if(!initialized){NewPipe.init(OkHttpDownloader(client),Localization(language));initialized=true}
+            if(!initialized){PlayerJavaScript.install(context);NewPipe.init(OkHttpDownloader(client),Localization(language));initialized=true}
             NewPipe.setPreferredLocalization(Localization(language))
         }
     }
@@ -38,7 +38,12 @@ import javax.inject.*
                 var result:VideoDetails?=null
                 for(attempt in 0..1) {
                     try {
-                        result=extractionAttempt { runInterruptible { extract(videoId) } }
+                        result=extractionAttempt { runInterruptible {
+                            try { extract(videoId) } catch(e:Exception) {
+                                if(Errors.code(e) !in setOf("NO_STREAMS","EXTRACTOR"))throw e
+                                InnertubeFallback(client).details(videoId,(e as? NoStreams)?.metadata)
+                            }
+                        } }
                         break
                     } catch(e:CancellationException) { throw e }
                     catch(e:Exception) {
@@ -84,8 +89,8 @@ import javax.inject.*
         if(info.streamType==StreamType.LIVE_STREAM || info.streamType==StreamType.AUDIO_LIVE_STREAM)throw IllegalStateException("LIVE_STREAM")
         fun video(s:VideoStream)=ExtractorStreams.video(s)
         val tracks=info.audioStreams.filter{it.isUrl && it.deliveryMethod==DeliveryMethod.PROGRESSIVE_HTTP}.groupBy{it.audioTrackId ?: "original"}.map{(key,streams)->val first=streams.first();AudioTrackOption(key,first.audioLocale?.toLanguageTag().orEmpty(),first.audioTrackType?.name ?: "ORIGINAL",first.audioTrackName.orEmpty(),streams.map{s->MediaStream(s.id,s.content,s.format?.suffix.orEmpty(),s.codec.orEmpty(),if(s.bitrate>0)s.bitrate else s.averageBitrate*1000)},first.audioTrackType==AudioTrackType.ORIGINAL)}
-        val details=VideoDetails(id,info.name,info.uploaderUrl,info.uploaderName,info.uploaderAvatars.maxByOrNull{it.height}?.url.orEmpty(),info.thumbnails.maxByOrNull{it.height}?.url.orEmpty(),info.duration*1000,info.viewCount,info.uploadDate?.instant?.toEpochMilli() ?: 0,info.description.content.take(2000),(info.videoOnlyStreams+info.videoStreams).filter{it.isUrl && it.deliveryMethod==DeliveryMethod.PROGRESSIVE_HTTP}.map(::video),tracks)
-        if(details.videos.isEmpty() && details.tracks.isEmpty())throw NoStreams(info.errors.firstOrNull())
+        val details=VideoDetails(id,info.name,info.uploaderUrl,info.uploaderName,info.uploaderAvatars.maxByOrNull{it.height}?.url.orEmpty(),info.thumbnails.maxByOrNull{it.height}?.url.orEmpty(),info.duration*1000,info.viewCount,info.uploadDate?.instant?.toEpochMilli() ?: 0,info.description.content.take(2000),(info.videoOnlyStreams+info.videoStreams).filter{it.isUrl && it.deliveryMethod==DeliveryMethod.PROGRESSIVE_HTTP}.map(::video),tracks,likeCount=info.likeCount)
+        if(details.videos.isEmpty() && details.tracks.isEmpty())throw NoStreams(info.errors.firstOrNull(),details)
         return details
 
     }

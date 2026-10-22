@@ -9,6 +9,9 @@ import java.util.concurrent.CancellationException;
 /** NewPipe's Rhino adapter, with modern lexical scope and interruptible execution. GPL-3.0-or-later. */
 public final class JavaScript {
     private JavaScript() { }
+    public interface Runner { String run(String source, String name, String[] parameters); }
+    private static volatile Runner runner;
+    public static void setRunner(Runner value) { runner = value; }
     private static final ContextFactory FACTORY = new ContextFactory() {
         @Override protected Context makeContext() {
             Context context = super.makeContext();
@@ -24,11 +27,14 @@ public final class JavaScript {
         }
     };
     public static void compileOrThrow(String function) {
+        if (runner != null) return; // The device engine compiles and evaluates together.
         try (Context context = FACTORY.enterContext()) {
             context.compileString(function, null, 1, null);
         }
     }
     public static String run(String function, String functionName, String... parameters) {
+        Runner current = runner;
+        if (current != null) return current.run(function, functionName, parameters);
         try (Context context = FACTORY.enterContext()) {
             ScriptableObject scope = context.initSafeStandardObjects();
             context.evaluateString(scope, function, functionName, 1, null);

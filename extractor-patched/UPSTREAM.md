@@ -19,3 +19,10 @@ interruption during JS execution so coroutine deadlines can stop CPU work.
 Use `var key` in the helper loop: Rhino 1.8.1 retains the first `const key`
 across iterations even in ES6 mode. The regression fixture catches the unchanged
 parameter result; merely compiling the helper does not detect it.
+
+0.0.5: the Android app registers `JavaScript.Runner` on first extraction. Player
+code executes in the device WebView JavaScript engine (no Java bridge, no network,
+file or content access); timeout and cancellation destroy the isolated WebView.
+Rhino remains the JVM-test fallback. Reject undefined/error sentinel n results.
+Empty VisionOS responses also try the independent ANDROID_VR client; its revision
+and context match yt-dlp's public client definitions at the time of this change.

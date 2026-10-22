@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.*
 import kotlin.random.Random
 
-@kotlinx.serialization.Serializable data class DownloadOptions(val details:VideoDetails?=null,val trackId:String?=null,val height:Int=1080,val container:String="",val audioOnly:Boolean=false)
+@kotlinx.serialization.Serializable data class DownloadOptions(val details:VideoDetails?=null,val trackId:String?=null,val height:Int=1080,val container:String="",val audioOnly:Boolean=false,val sponsorBlockCategories:Set<String> = emptySet())
 data class Progress(val done:Long,val total:Long,val speed:Long,val eta:Long) {val fraction get()=if(total>0)done.toFloat()/total else 0f}
 private class StreamExpired:IOException()
 @Singleton class DownloadManager @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val preferences:Preferences,private val backend:YoutubeBackend,private val client:OkHttpClient,private val storage:MediaStorage) {
@@ -66,7 +66,8 @@ private class StreamExpired:IOException()
     }
     suspend fun enqueue(videoId:String,height:Int,audioOnly:Boolean,details:VideoDetails?=null,trackId:String?=null,title:String?=null,channel:String="",thumbnail:String=""):Long {
         initialize()
-        val options=DownloadOptions(details,trackId,height,audioOnly=audioOnly)
+        val prefs=preferences.flow.first()
+        val options=DownloadOptions(details,trackId,height,audioOnly=audioOnly,sponsorBlockCategories=if(prefs.sponsorBlockEnabled)prefs.sponsorBlockCategories else emptySet())
         val id=dao.enqueue(DownloadEntity(ytId=videoId,url=UrlParser.canonical(videoId),title=details?.title ?: title ?: context.getString(con.themralex.astrayt.R.string.pending_video),channelName=details?.channelName ?: channel,thumbnailPath=details?.thumbnail ?: thumbnail,kind=if(audioOnly)"AUDIO"else"VIDEO",optionsJson=Json.encodeToString(options)))
         startService();return id
     }
@@ -86,6 +87,7 @@ private class StreamExpired:IOException()
             startService();dao.state(row.id,"FETCHING")
             val options=Json.decodeFromString<DownloadOptions>(row.optionsJson)
             awaitNetwork(row.id,prefs,"FETCHING")
+            val cuts=if(options.sponsorBlockCategories.isEmpty())emptyList()else SponsorBlock(client).segments(row.ytId,options.sponsorBlockCategories)
             var details=options.details?.takeIf{System.currentTimeMillis()-it.fetchedAt<1200000 && (it.videos.isNotEmpty() || it.tracks.isNotEmpty())} ?: backend.details(row.ytId)
             var remembered=dao.channelLanguage(details.channelId)
             fun selectedTrack()=details.tracks.firstOrNull{it.id==options.trackId} ?: AudioTrackSelector.select(details.tracks,prefs.preferredAudioLanguage,remembered,prefs.autoPickDubbed,batch=true).track
@@ -105,7 +107,7 @@ private class StreamExpired:IOException()
             dao.metadata(row.id,details.title,details.channelName,details.thumbnail)
             awaitNetwork(row.id,prefs)
             val lengths=mutableMapOf<String,Long>()
-            suspend fun length(stream:MediaStream):Long {return try {contentLength(row.id,stream.url)}catch(e:StreamExpired){refresh();plan=quality();contentLength(row.id,(if(stream.videoOnly)plan.video else plan.audio ?: plan.video)?.url ?: throw e)}}
+            suspend fun length(stream:MediaStream):Long {return try {contentLength(row.id,stream.url,stream.headers)}catch(e:StreamExpired){refresh();plan=quality();(if(stream.videoOnly)plan.video else plan.audio ?: plan.video)?.let{contentLength(row.id,it.url,it.headers)} ?: throw e}}
             plan.video?.let{lengths["video"]=length(it)};plan.audio?.let{lengths["audio"]=length(it)}
             val total=lengths.values.sum();if(dir.usableSpace<total*1.15)throw IOException("DISK_FULL")
             val done=AtomicLong();val totalCounter=AtomicLong(total);counters[row.id]=done to totalCounter
@@ -140,7 +142,7 @@ private class StreamExpired:IOException()
                                                 try {
                                                     val stream = if (key == "video") quality().video else quality().audio
                                                     val url = stream?.url ?: throw IOException("Missing stream")
-                                                    val call = client.newCall(Request.Builder().url(url).header("Range", "bytes=${chunk.start}-${chunk.end}").header("Accept-Encoding", "identity").build())
+                                                    val call = client.newCall(Request.Builder().url(url).apply{stream.headers.forEach{(name,value)->header(name,value)}}.header("Range", "bytes=${chunk.start}-${chunk.end}").header("Accept-Encoding", "identity").build())
                                                     register(row.id, call)
                                                     transferLock.acquire(5*60*1000L)
                                                     try {
@@ -190,12 +192,12 @@ private class StreamExpired:IOException()
                 }.awaitAll()
             }
             state.save();wake?.let{if(it.isHeld)it.release()};wake=null;dao.state(row.id,"MUXING")
-            storage.finish(row,options.copy(trackId=selectedTrack()?.id),details,plan,File(dir,"video.part").takeIf{it.exists()},File(dir,"audio.part").takeIf{it.exists()})
+            storage.finish(row,options.copy(trackId=selectedTrack()?.id),details,plan,File(dir,"video.part").takeIf{it.exists()},File(dir,"audio.part").takeIf{it.exists()},cuts)
             dao.progress(row.id,total,total);dao.state(row.id,"DONE");dir.deleteRecursively()
         }catch(e:TimeoutCancellationException){dao.state(row.id,"FAILED","TIMEOUT")}catch(e:CancellationException){throw e}catch(e:Exception){if(dao.download(row.id)?.state !in setOf("CANCELED","PAUSED"))dao.state(row.id,"FAILED",Errors.code(e))}
         finally {if(dir.exists())runCatching{state.save()};wake?.let{if(it.isHeld)it.release()}}
     }
     private fun register(id:Long,call:Call){calls.computeIfAbsent(id){ConcurrentHashMap.newKeySet()}.add(call)}
     private fun unregister(id:Long,call:Call){calls[id]?.remove(call)}
-    private suspend fun contentLength(id:Long,url:String):Long=withContext(Dispatchers.IO){val call=client.newCall(Request.Builder().url(url).header("Range","bytes=0-0").header("Accept-Encoding","identity").build());register(id,call);try{call.execute().use{r->if(r.code==403||r.code==410)throw StreamExpired();if(r.code==429){cooldown.set(System.currentTimeMillis()+30000);throw IOException("429")};if(!r.isSuccessful)throw IOException("HTTP ${r.code}");val length=r.header("Content-Range")?.substringAfterLast('/')?.toLongOrNull() ?: r.body.contentLength();if(length<=0)throw IOException("Unknown stream size");length}}finally{unregister(id,call)}}
+    private suspend fun contentLength(id:Long,url:String,headers:Map<String,String>):Long=withContext(Dispatchers.IO){val call=client.newCall(Request.Builder().url(url).apply{headers.forEach{(name,value)->header(name,value)}}.header("Range","bytes=0-0").header("Accept-Encoding","identity").build());register(id,call);try{call.execute().use{r->if(r.code==403||r.code==410)throw StreamExpired();if(r.code==429){cooldown.set(System.currentTimeMillis()+30000);throw IOException("429")};if(!r.isSuccessful)throw IOException("HTTP ${r.code}");val length=r.header("Content-Range")?.substringAfterLast('/')?.toLongOrNull() ?: r.body.contentLength();if(length<=0)throw IOException("Unknown stream size");length}}finally{unregister(id,call)}}
 }

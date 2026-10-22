@@ -4,7 +4,7 @@ import androidx.paging.PagingSource
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName="videos",indices=[Index(value=["ytId"],unique=true),Index("channelId"),Index("addedAtMs")])
-data class VideoEntity(@PrimaryKey(autoGenerate=true)val id: Long=0,val ytId: String,val title: String,val channelId: String,val channelName: String,val channelAvatarPath: String="",val thumbnailPath: String="",val durationMs: Long,val viewCount: Long=0,val uploadDateMs: Long=0,val description: String="",val contentUri: String,val fileSizeBytes: Long,val mimeType: String,val width: Int=0,val height: Int=0,val kind: String,val audioLangTag: String="",val audioLabel: String="",val addedAtMs: Long=System.currentTimeMillis(),val lastPlayedAtMs: Long=0,val positionMs: Long=0,val dominantColor: Int=0)
+data class VideoEntity(@PrimaryKey(autoGenerate=true)val id: Long=0,val ytId: String,val title: String,val channelId: String,val channelName: String,val channelAvatarPath: String="",val thumbnailPath: String="",val durationMs: Long,val viewCount: Long=0,val uploadDateMs: Long=0,val description: String="",val contentUri: String,val fileSizeBytes: Long,val mimeType: String,val width: Int=0,val height: Int=0,val kind: String,val audioLangTag: String="",val audioLabel: String="",val addedAtMs: Long=System.currentTimeMillis(),val lastPlayedAtMs: Long=0,val positionMs: Long=0,val dominantColor: Int=0,@ColumnInfo(defaultValue="-1") val likeCount:Long=-1,@ColumnInfo(defaultValue="0") val removedDurationMs:Long=0)
 @Fts4(contentEntity=VideoEntity::class) @Entity(tableName="video_fts") data class VideoFts(val title: String,val channelName: String)
 @Entity(tableName="downloads",indices=[Index("state"),Index("createdAtMs")])
 data class DownloadEntity(@PrimaryKey(autoGenerate=true)val id: Long=0,val ytId: String,val url: String,val title: String,val channelName: String,val thumbnailPath: String,val kind: String,val optionsJson: String,val state: String="QUEUED",val bytesDone: Long=0,val bytesTotal: Long=0,val errorCode: String?=null,val priority: Int=0,val createdAtMs: Long=System.currentTimeMillis(),val updatedAtMs: Long=System.currentTimeMillis())
@@ -35,5 +35,5 @@ data class DownloadEntity(@PrimaryKey(autoGenerate=true)val id: Long=0,val ytId:
     @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun remember(pref: ChannelAudioPref)
     @Query("DELETE FROM channel_audio_pref WHERE channelId=:id") suspend fun forget(id: String)
 }
-@Database(entities=[VideoEntity::class,VideoFts::class,DownloadEntity::class,ChannelAudioPref::class],version=1,exportSchema=true)
+@Database(entities=[VideoEntity::class,VideoFts::class,DownloadEntity::class,ChannelAudioPref::class],version=2,exportSchema=true)
 abstract class AstraDatabase:RoomDatabase(){abstract fun dao():AstraDao}

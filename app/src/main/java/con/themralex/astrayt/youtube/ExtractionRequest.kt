@@ -6,7 +6,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 class ExtractionTimeout(cause: Throwable) : IOException("EXTRACTION_TIMEOUT", cause)
-class NoStreams(cause: Throwable? = null) : IOException("NO_STREAMS", cause)
+class NoStreams(cause: Throwable? = null,val metadata:VideoDetails?=null) : IOException("NO_STREAMS", cause)
 
 /** Shared callers survive each other's cancellation; failed flights never poison later requests. */
 internal class ExtractionRequest<T>(private val scope: CoroutineScope) {
