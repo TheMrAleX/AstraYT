@@ -99,6 +99,9 @@ Las casillas de las siete fases permanecen abiertas porque representan la especi
 - Red necesaria guardada en el borrador del entorno (JitPack, API/adjuntos de GitHub, YouTube/CDN y SponsorBlock). El guardado no aplica la política: requiere revisar, guardar y publicar la configuración en ajustes del entorno.
 - Código subido a main en edde34d. Intento real de publicación: https://github.com/TheMrAleX/AstraYT/actions/runs/39849795450 ; falló en `Prepare signing` con `Falta KEYSTORE_BASE64`. No hay release 0.0.5 publicada. Para completarla se necesita recuperar la clave privada original y configurar los cuatro secretos de Actions indicados en README; después ejecutar Release (sin versión manual incrementa 0.0.4 a 0.0.5). Las APKs locales son sin firma y no sustituyen una entrega instalable.
 
+- Publicación 0.0.5 completada con la clave original recuperada en este entorno: https://github.com/TheMrAleX/AstraYT/releases/tag/v0.0.5 . Los APK ARM64 y ARMv7 conservan el certificado SHA-256 c4a7fec889a3550494efea270d3e3c8a76219792d11f41e12946f2e8a04763df, versionCode 5.
+- `testReleaseUnitTest assembleRelease lintRelease --offline` completado: 47 pruebas, 0 fallos/omisiones y lint sin errores. Workflow de publicación 39851851991 exitoso; los cuatro adjuntos públicos coinciden en tamaño y SHA-256 con los artefactos locales. La clave privada permanece fuera del repositorio.
+
 ## Revisión 0.0.6 solicitada por el usuario
 - Firma recuperada desde los adjuntos del usuario y comprobada contra el certificado de 0.0.4. Clave y configuración permanecen fuera del checkout; no se suben a Git ni a Actions.
 - En vista normal, arrastrar hacia abajo minimiza; brillo/volumen por gestos quedan solo en pantalla completa. Minirreproductor con superficie Media3 de vídeo en vivo, sin cambiar a solo audio al navegar. Transiciones del reproductor respetan la preferencia de animaciones.
