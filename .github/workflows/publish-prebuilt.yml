@@ -21,6 +21,7 @@ jobs:
         with:
           ref: ${{ inputs.artifact_ref || github.sha }}
           persist-credentials: false
+          fetch-depth: 0
       - name: Validate staged files
         id: release
         shell: bash
@@ -53,6 +54,18 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'tag={tag}\n')
           PYTHON
+      - name: Verify update signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          signer=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner | sort -V | tail -n 1)
+          test -n "$signer"
+          expected=c4a7fec889a3550494efea270d3e3c8a76219792d11f41e12946f2e8a04763df
+          tag=$(python3 -c 'import json; print(json.load(open("RELEASE.json"))["tag"])')
+          for abi in arm64-v8a armeabi-v7a; do
+            certificate=$("$signer" verify --print-certs "AstraYT-$tag-$abi.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            test "$certificate" = "$expected"
+          done
       - name: Upload, verify and publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -60,13 +73,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          source_commit=$(python3 -c 'import json; print(json.load(open("RELEASE.json"))["source_commit"])')
+          git cat-file -e "$source_commit^{commit}"
+          if ! gh release view "$RELEASE_TAG" --json isDraft > "$RUNNER_TEMP/release-state.json"; then
+            python3 - <<'PYTHON'
+          import json, os, pathlib
+          meta = json.loads(pathlib.Path('RELEASE.json').read_text())
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'release-notes.md').write_text(meta.get('notes', ''))
+          PYTHON
+            gh release create "$RELEASE_TAG" --draft --target "$source_commit" --title "AstraYT ${RELEASE_TAG#v}" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
           test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
           assets=()
           for abi in arm64-v8a armeabi-v7a; do
             apk="AstraYT-$RELEASE_TAG-$abi.apk"
             assets+=("$apk" "$apk.sha256")
           done
-          gh release upload "$RELEASE_TAG" "${assets[@]}"
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
           verify_dir="$RUNNER_TEMP/verify-release"
           mkdir -p "$verify_dir"
           gh release download "$RELEASE_TAG" --dir "$verify_dir"

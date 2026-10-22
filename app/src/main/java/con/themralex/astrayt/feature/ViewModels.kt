@@ -159,6 +159,7 @@ abstract class ScreenModel:ViewModel() {
     init{work{downloads.initialize()}}
     fun play(video:VideoEntity,playlist:List<VideoEntity>,audioOnly:Boolean=false)=work{playback.play(video,playlist.ifEmpty{listOf(video)},audioOnly)}
     fun playDownloaded(id:Long)=work{val row=dao.download(id) ?: return@work;val all=dao.allVideos();all.firstOrNull{it.ytId==row.ytId}?.let{playback.play(it,all)}}
+    fun addSubtitle(uri:android.net.Uri)=work{playback.addSubtitle(uri)}
     fun toggle()=work{playback.toggle()}
     fun close()=work{playback.close()}
     fun save()=work{playback.save()}

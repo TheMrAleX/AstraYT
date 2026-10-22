@@ -47,9 +47,9 @@ private class StreamExpired:IOException()
         val paused=stored.count{it.state=="PAUSED"}
         if(paused>0){
             val notices=context.getSystemService(android.app.NotificationManager::class.java)
-            notices.createNotificationChannel(android.app.NotificationChannel("downloads_issues",context.getString(con.themralex.astrayt.R.string.issues_channel),android.app.NotificationManager.IMPORTANCE_HIGH))
+            notices.createNotificationChannel(android.app.NotificationChannel(QUIET_ISSUES_CHANNEL,context.getString(con.themralex.astrayt.R.string.issues_channel),android.app.NotificationManager.IMPORTANCE_LOW).apply{setSound(null,null);enableVibration(false);setShowBadge(false)})
             val resume=android.app.PendingIntent.getForegroundService(context,101,Intent(context,DownloadService::class.java).setAction("resume_all"),android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
-            notices.notify(101,androidx.core.app.NotificationCompat.Builder(context,"downloads_issues").setSmallIcon(con.themralex.astrayt.R.drawable.ic_notification).setContentTitle(context.resources.getQuantityString(con.themralex.astrayt.R.plurals.paused_count,paused,paused)).setAutoCancel(true).addAction(0,context.getString(con.themralex.astrayt.R.string.resume),resume).build())
+            notices.notify(101,androidx.core.app.NotificationCompat.Builder(context,QUIET_ISSUES_CHANNEL).setSmallIcon(con.themralex.astrayt.R.drawable.ic_notification).setContentTitle(context.resources.getQuantityString(con.themralex.astrayt.R.plurals.paused_count,paused,paused)).setAutoCancel(true).setSilent(true).setOnlyAlertOnce(true).addAction(0,context.getString(con.themralex.astrayt.R.string.resume),resume).build())
         }
         val known=stored.map{it.id.toString()}.toSet()
         File(context.noBackupFilesDir,"dl").listFiles()?.filter{it.name !in known}?.forEach{it.deleteRecursively()}
@@ -194,7 +194,7 @@ private class StreamExpired:IOException()
             state.save();wake?.let{if(it.isHeld)it.release()};wake=null;dao.state(row.id,"MUXING")
             storage.finish(row,options.copy(trackId=selectedTrack()?.id),details,plan,File(dir,"video.part").takeIf{it.exists()},File(dir,"audio.part").takeIf{it.exists()},cuts)
             dao.progress(row.id,total,total);dao.state(row.id,"DONE");dir.deleteRecursively()
-        }catch(e:TimeoutCancellationException){dao.state(row.id,"FAILED","TIMEOUT")}catch(e:CancellationException){throw e}catch(e:Exception){if(dao.download(row.id)?.state !in setOf("CANCELED","PAUSED"))dao.state(row.id,"FAILED",Errors.code(e))}
+        }catch(e:TimeoutCancellationException){dao.failUnlessStopped(row.id,"TIMEOUT")}catch(e:CancellationException){throw e}catch(e:Exception){dao.failUnlessStopped(row.id,Errors.code(e))}
         finally {if(dir.exists())runCatching{state.save()};wake?.let{if(it.isHeld)it.release()}}
     }
     private fun register(id:Long,call:Call){calls.computeIfAbsent(id){ConcurrentHashMap.newKeySet()}.add(call)}

@@ -16,7 +16,7 @@
     <string name="video">Video</string>
     <string name="audio">Audio</string>
     <string name="quality">Quality</string>
-    <string name="audio_tracks">This video has multiple audio tracks</string>
+    <string name="audio_tracks">Audio tracks</string>
     <string name="choose_audio">Choose how you want to listen</string>
     <string name="remember_channel">Remember for this channel</string>
     <string name="best_audio">Best audio quality</string>
@@ -189,4 +189,12 @@
     <string name="no_results">No videos match these filters</string>
 <string name="resize_video">Fit or crop video</string>
 <string name="error_empty_cut">The segments cover the entire video. Choose fewer categories and add it to the queue again.</string>
+    <string name="likes">Likes</string>
+    <string name="show_video">Show video</string>
+    <string name="subtitles">Subtitles</string>
+    <string name="subtitles_off">Off</string>
+    <string name="open_subtitle">Open subtitle file</string>
+    <string name="player_track">Track %1$d</string>
+    <string name="error_subtitle_format">Choose an SRT, VTT, TTML, ASS or SSA subtitle file.</string>
+    <string name="error_subtitle_size">The subtitle file exceeds 10 MB.</string>
 </resources>

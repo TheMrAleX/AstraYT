@@ -146,5 +146,5 @@ import javax.inject.*
             }
         }
     }
-    suspend fun delete(video:VideoEntity)=withContext(Dispatchers.IO){context.contentResolver.delete(Uri.parse(video.contentUri),null,null);File(video.thumbnailPath).takeIf{it.isFile}?.delete();dao.deleteVideo(video.id)}
+    suspend fun delete(video:VideoEntity)=withContext(Dispatchers.IO){File(context.filesDir,"subtitles/${video.ytId}").deleteRecursively();context.contentResolver.delete(Uri.parse(video.contentUri),null,null);File(video.thumbnailPath).takeIf{it.isFile}?.delete();dao.deleteVideo(video.id)}
 }

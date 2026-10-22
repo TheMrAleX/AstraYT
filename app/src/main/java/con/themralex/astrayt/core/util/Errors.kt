@@ -17,6 +17,8 @@ object Errors {
         "Paid" in name || "members" in msg || "premium" in msg->"MEMBERS"
         "ReCaptcha" in name || "429" in msg->"RATE"
         "live_stream" in msg->"LIVE"
+        "subtitle_format" in msg->"SUBTITLE_FORMAT"
+        "subtitle_size" in msg->"SUBTITLE_SIZE"
         "sponsorblock_empty" in msg->"EMPTY_CUT"
         "disk_full" in msg->"DISK"
         "Unsupported" in name || "unsupported_url" in msg->"URL"
@@ -27,5 +29,5 @@ object Errors {
         error is java.io.IOException->"NETWORK"
         else->"GENERIC"
     }}
-    fun string(code:String?)=when(code){"SPONSORBLOCK"->R.string.error_sponsorblock;"EMPTY_CUT"->R.string.error_empty_cut;"TIMEOUT"->R.string.error_timeout;"NO_STREAMS"->R.string.error_no_streams;"NETWORK"->R.string.error_network;"AGE"->R.string.error_age;"PRIVATE"->R.string.error_private;"GEO"->R.string.error_geo;"MEMBERS"->R.string.error_members;"RATE"->R.string.error_rate;"LIVE"->R.string.error_live;"DISK"->R.string.error_disk;"URL"->R.string.error_url;"REMOVED"->R.string.error_removed;"EXTRACTOR"->R.string.error_extractor;"STORAGE"->R.string.error_storage;else->R.string.error_generic}
+    fun string(code:String?)=when(code){"SUBTITLE_FORMAT"->R.string.error_subtitle_format;"SUBTITLE_SIZE"->R.string.error_subtitle_size;"SPONSORBLOCK"->R.string.error_sponsorblock;"EMPTY_CUT"->R.string.error_empty_cut;"TIMEOUT"->R.string.error_timeout;"NO_STREAMS"->R.string.error_no_streams;"NETWORK"->R.string.error_network;"AGE"->R.string.error_age;"PRIVATE"->R.string.error_private;"GEO"->R.string.error_geo;"MEMBERS"->R.string.error_members;"RATE"->R.string.error_rate;"LIVE"->R.string.error_live;"DISK"->R.string.error_disk;"URL"->R.string.error_url;"REMOVED"->R.string.error_removed;"EXTRACTOR"->R.string.error_extractor;"STORAGE"->R.string.error_storage;else->R.string.error_generic}
 }

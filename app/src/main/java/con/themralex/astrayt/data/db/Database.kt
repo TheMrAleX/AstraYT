@@ -25,6 +25,7 @@ data class DownloadEntity(@PrimaryKey(autoGenerate=true)val id: Long=0,val ytId:
     @Query("SELECT * FROM downloads WHERE id=:id") suspend fun download(id: Long):DownloadEntity?
     @Insert suspend fun enqueue(download: DownloadEntity):Long
     @Query("UPDATE downloads SET state=:state,errorCode=:error,updatedAtMs=:now WHERE id=:id") suspend fun state(id: Long,state: String,error: String?=null,now: Long=System.currentTimeMillis())
+    @Query("UPDATE downloads SET state='FAILED',errorCode=:error,updatedAtMs=:now WHERE id=:id AND state NOT IN ('CANCELED','PAUSED','DONE')") suspend fun failUnlessStopped(id:Long,error:String,now:Long=System.currentTimeMillis())
     @Query("UPDATE downloads SET title=:title,channelName=:channel,thumbnailPath=:thumbnail WHERE id=:id") suspend fun metadata(id:Long,title:String,channel:String,thumbnail:String)
     @Query("UPDATE downloads SET bytesDone=:done,bytesTotal=:total,updatedAtMs=:now WHERE id=:id") suspend fun progress(id: Long,done: Long,total: Long,now: Long=System.currentTimeMillis())
     @Query("UPDATE downloads SET priority=(SELECT COALESCE(MAX(priority),0)+1 FROM downloads) WHERE id=:id") suspend fun prioritize(id: Long)

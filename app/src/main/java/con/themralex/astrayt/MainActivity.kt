@@ -23,6 +23,7 @@ import androidx.navigation.*
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.*
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import con.themralex.astrayt.core.designsystem.*
 import con.themralex.astrayt.feature.*
 import con.themralex.astrayt.feature.player.*
@@ -73,17 +74,22 @@ import javax.inject.Inject
             else {
                 Column(Modifier.fillMaxSize().then(if(pip)Modifier else Modifier.statusBarsPadding()).imePadding()) {
                 Box(Modifier.weight(1f)) {
-                    NavHost(navController=nav,startDestination=Capture,enterTransition={fadeIn()},exitTransition={fadeOut()}) {
+                    NavHost(navController=nav,startDestination=Capture,enterTransition={fadeIn(tween(if(animations)220 else 0))},exitTransition={fadeOut(tween(if(animations)180 else 0))}) {
                         composable<Capture>{Column{if(update!=null)SingularityButton(stringResource(R.string.update_available),{external(context,update!!)},Modifier.fillMaxWidth(),"secondary");Box(Modifier.weight(1f)){CaptureScreen(capture,prefs,all,{v->main.play(v,all);nav.navigate(PlayerRoute)})}}}
                         composable<Queue>{QueueScreen(queue){id->main.playDownloaded(id);nav.navigate(PlayerRoute)}}
                         composable<Library>{LibraryScreen(library,{v,list,audio->main.play(v,list,audio);nav.navigate(PlayerRoute)},{nav.navigate(Capture)},{id->nav.navigate(ChannelRoute(id))})}
                         composable<SettingsRoute>{SettingsScreen(settings,all)}
                         composable<ChannelRoute>{backStack->ChannelScreen(backStack.toRoute<ChannelRoute>().id,all,{v,list->main.play(v,list);nav.navigate(PlayerRoute)})}
-                        composable<PlayerRoute>{PlayerScreen(main,playing,all,prefs,{value->settings.change{it.copy(autoplayNext=value)}},{id->nav.navigate(ChannelRoute(id))},{nav.popBackStack()},{video->main.close();library.delete(video)},pip)}
+                        composable<PlayerRoute>(
+                            enterTransition={slideInVertically(tween(if(animations)320 else 0)){it/2}+fadeIn(tween(if(animations)220 else 0))},
+                            exitTransition={fadeOut(tween(if(animations)180 else 0))},
+                            popEnterTransition={fadeIn(tween(if(animations)220 else 0))},
+                            popExitTransition={slideOutVertically(tween(if(animations)280 else 0)){it/2}+fadeOut(tween(if(animations)220 else 0))}
+                        ){PlayerScreen(main,playing,all,prefs,{value->settings.change{it.copy(autoplayNext=value)}},{id->nav.navigate(ChannelRoute(id))},{nav.popBackStack()},{video->main.close();library.delete(video)},pip)}
                     }
                 }
                 if(!isPlayer && !pip)Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    if(playing.video!=null)MiniPlayer(playing,{nav.navigate(PlayerRoute)},{main.toggle()},{main.close()},Modifier.fillMaxWidth())
+                    if(playing.video!=null)MiniPlayer(playing,main.playback,{nav.navigate(PlayerRoute)},{main.toggle()},{main.close()},Modifier.fillMaxWidth())
                     val selected=when{destination?.hasRoute<Queue>()==true->1;destination?.hasRoute<Library>()==true||destination?.hasRoute<ChannelRoute>()==true->2;destination?.hasRoute<SettingsRoute>()==true->3;else->0}
                     FloatingNavBar(listOf(stringResource(R.string.capture),stringResource(R.string.queue),stringResource(R.string.library),stringResource(R.string.settings)),listOf(Icons.Rounded.AddLink,Icons.Rounded.Downloading,Icons.Rounded.VideoLibrary,Icons.Rounded.Settings),selected,{index->val route:Any=when(index){1->Queue;2->Library;3->SettingsRoute;else->Capture};nav.navigate(route){popUpTo<Capture>{saveState=true};launchSingleTop=true;restoreState=true}},Modifier.fillMaxWidth())
                 }

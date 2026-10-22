@@ -27,12 +27,13 @@ import kotlin.math.abs
 internal val YoutubeRed=Color(0xFFFF3636)
 private enum class DragMode { SEEK, BRIGHTNESS, VOLUME }
 private data class DragState(val mode:DragMode,val value:Float=0f,val target:Long=0)
-@Composable internal fun ArcaGestureLayer(playback:Playback,state:PlaybackState,locked:Boolean,onTap:()->Unit,onInteract:()->Unit,modifier:Modifier=Modifier) {
+@Composable internal fun ArcaGestureLayer(playback:Playback,state:PlaybackState,locked:Boolean,onTap:()->Unit,onInteract:()->Unit,immersive:Boolean,onMinimize:()->Unit,onMinimizeDrag:(Float)->Unit,modifier:Modifier=Modifier) {
     val context=LocalContext.current;val activity=context as? Activity
     val audio=remember {context.getSystemService(AudioManager::class.java)}
     val maxVolume=remember{audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)}
     val current by rememberUpdatedState(state);val disabled by rememberUpdatedState(locked)
     val tap by rememberUpdatedState(onTap);val interact by rememberUpdatedState(onInteract)
+    val minimize by rememberUpdatedState(onMinimize);val minimizeDrag by rememberUpdatedState(onMinimizeDrag)
     var boosted by remember{mutableStateOf(false)};var drag by remember{mutableStateOf<DragState?>(null)}
     var flash by remember{mutableStateOf<Pair<Boolean,Int>?>(null)}
     var oldSpeed by remember{mutableFloatStateOf(1f)}
@@ -64,7 +65,7 @@ private data class DragState(val mode:DragMode,val value:Float=0f,val target:Lon
                 interact()
             })
         }
-        .pointerInput(playback) {
+        .then(if(immersive)Modifier.pointerInput(playback,immersive) {
             var startPosition=0L;var startValue=0f;var side=DragMode.BRIGHTNESS;var accumulated=Offset.Zero
             detectDragGestures(onDragStart={offset->
                 accumulated=Offset.Zero;startPosition=current.position;side=if(offset.x<size.width/2)DragMode.BRIGHTNESS else DragMode.VOLUME
@@ -80,7 +81,15 @@ private data class DragState(val mode:DragMode,val value:Float=0f,val target:Lon
                     DragMode.VOLUME->{val value=(startValue-accumulated.y/(size.height*.8f)).coerceIn(0f,1f);audio.setStreamVolume(AudioManager.STREAM_MUSIC,(value*maxVolume).toInt(),0);DragState(mode,value)}
                 };interact()
             })
-        }) {
+        }else Modifier.pointerInput(playback,immersive) {
+            var distance=0f
+            val threshold=80.dp.toPx()
+            detectVerticalDragGestures(onDragStart={distance=0f},onDragCancel={minimizeDrag(0f)},onDragEnd={
+                if(!disabled && distance>threshold)minimize()else minimizeDrag(0f)
+            },onVerticalDrag={change,dy->
+                if(!disabled && !boosted){change.consume();distance=(distance+dy).coerceAtLeast(0f);minimizeDrag(distance)}
+            })
+        })) {
         val label=when{boosted->"2×";drag?.mode==DragMode.SEEK->Formatters.duration(drag!!.target);drag!=null->stringResource(if(drag!!.mode==DragMode.BRIGHTNESS)R.string.brightness else R.string.volume)+" ${(drag!!.value*100).toInt()} %";else->null}
         if(label!=null)Text(label,color=Color.White,modifier=Modifier.align(Alignment.Center).background(Color.Black.copy(alpha=.75f),RoundedCornerShape(10.dp)).padding(12.dp))
         flash?.let{(forward,seconds)->Text((if(forward)"+"else"−")+"$seconds s",color=Color.White,modifier=Modifier.align(if(forward)Alignment.CenterEnd else Alignment.CenterStart).padding(24.dp).background(Color.Black.copy(alpha=.6f),CircleShape).padding(20.dp))}

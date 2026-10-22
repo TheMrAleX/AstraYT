@@ -16,7 +16,7 @@
     <string name="video">Vídeo</string>
     <string name="audio">Audio</string>
     <string name="quality">Calidad</string>
-    <string name="audio_tracks">Este vídeo tiene varios audios</string>
+    <string name="audio_tracks">Pistas de audio</string>
     <string name="choose_audio">Elige cómo quieres escucharlo</string>
     <string name="remember_channel">Recordar para este canal</string>
     <string name="best_audio">Mejor calidad de audio</string>
@@ -180,7 +180,7 @@
     <string name="screen_unlock">Desbloquear controles</string>
     <string name="brightness">Brillo</string>
     <string name="volume">Volumen</string>
-    <string name="likes_text">%1$s Me gusta</string>
+    <string name="likes_text">%1$s likes</string>
     <string name="offline_saved">Guardado sin conexión · %1$s</string>
     <string name="segments_removed">SponsorBlock · %1$s recortados</string>
     <string name="video_details">Detalles del vídeo</string>
@@ -189,4 +189,12 @@
     <string name="no_results">No hay vídeos con estos filtros</string>
 <string name="resize_video">Ajustar o recortar imagen</string>
 <string name="error_empty_cut">Los segmentos cubren todo el vídeo. Elige menos categorías y vuelve a añadirlo a la cola.</string>
+    <string name="likes">Likes</string>
+    <string name="show_video">Volver al vídeo</string>
+    <string name="subtitles">Subtítulos</string>
+    <string name="subtitles_off">Desactivados</string>
+    <string name="open_subtitle">Abrir archivo de subtítulos</string>
+    <string name="player_track">Pista %1$d</string>
+    <string name="error_subtitle_format">Selecciona subtítulos SRT, VTT, TTML, ASS o SSA.</string>
+    <string name="error_subtitle_size">El archivo de subtítulos supera los 10 MB.</string>
 </resources>
