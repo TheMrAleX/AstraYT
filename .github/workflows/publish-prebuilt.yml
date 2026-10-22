@@ -93,13 +93,18 @@ jobs:
             echo "::error::No está disponible el commit fuente $source_commit en el checkout"
             exit 1
           fi
+          tag_commit=$(git rev-parse "$RELEASE_TAG^{commit}")
+          if [ "$tag_commit" != "$source_commit" ]; then
+            echo "::error::El tag no coincide con el commit fuente verificado"
+            exit 1
+          fi
           if ! gh release view "$RELEASE_TAG" --json isDraft > "$RUNNER_TEMP/release-state.json"; then
             python3 - <<'PYTHON'
           import json, os, pathlib
           meta = json.loads(pathlib.Path('RELEASE.json').read_text())
           pathlib.Path(os.environ['RUNNER_TEMP'], 'release-notes.md').write_text(meta.get('notes', ''))
           PYTHON
-            if ! gh release create "$RELEASE_TAG" --draft --target "$source_commit" --title "AstraYT ${RELEASE_TAG#v}" --notes-file "$RUNNER_TEMP/release-notes.md" 2> "$RUNNER_TEMP/release-error.txt"; then
+            if ! gh release create "$RELEASE_TAG" --verify-tag --draft --title "AstraYT ${RELEASE_TAG#v}" --notes-file "$RUNNER_TEMP/release-notes.md" 2> "$RUNNER_TEMP/release-error.txt"; then
               python3 - <<'PYTHON'
           import os, pathlib
           message = pathlib.Path(os.environ['RUNNER_TEMP'], 'release-error.txt').read_text()
