@@ -35,7 +35,10 @@ jobs:
           path = pathlib.Path('gradle/libs.versions.toml')
           original = path.read_text()
           updated = re.sub(r'^extractor = "[^"]+"', 'extractor = "' + os.environ['EXTRACTOR_TAG'] + '"', original, flags=re.M)
-          if original != updated:
+          if original != updated and pathlib.Path('extractor-patched').exists():
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                  summary.write('New upstream release: ' + os.environ['EXTRACTOR_TAG'] + '. Review/remove extractor-patched before updating the base.\n')
+          elif original != updated:
               path.write_text(updated)
               with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
                   output.write('changed=true\n')

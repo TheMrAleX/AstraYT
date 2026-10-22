@@ -39,7 +39,7 @@ abstract class ScreenModel:ViewModel() {
             try {when(val resolved=backend.resolve(url)) {
                 is ResolvedLink.Video->{val p=prefs.flow.first();val remembered=dao.channelLanguage(resolved.details.channelId);val selected=AudioTrackSelector.select(resolved.details.tracks,p.preferredAudioLanguage,remembered,p.autoPickDubbed,p.askWhenAlternatives);_state.value=_state.value.copy(loading=false,result=resolved.details,trackId=selected.track?.id,prompt=selected.prompt)}
                 is ResolvedLink.Playlist->_state.value=_state.value.copy(loading=false,playlist=resolved,selected=resolved.entries.map{it.ytId}.toSet())
-            }}catch(e:CancellationException){throw e}catch(e:Exception){_state.value=_state.value.copy(loading=false,error=Errors.code(e))}
+            }}catch(e:TimeoutCancellationException){_state.value=_state.value.copy(loading=false,error="TIMEOUT")}catch(e:CancellationException){throw e}catch(e:Exception){_state.value=_state.value.copy(loading=false,error=Errors.code(e))}
         }
     }
     fun track(id:String){_state.value=_state.value.copy(trackId=id)}

@@ -95,17 +95,10 @@ private class StreamExpired:IOException()
                 val previous=pinned
                 return (if(previous==null)StreamPlanner.default(all,options.height)
                     else all.firstOrNull{it.video?.id==previous.video?.id && it.audio?.id==previous.audio?.id && it.container==previous.container && it.height==previous.height})
-                    ?: throw IllegalStateException("NO_STREAMS")
+                    ?: throw NoStreams()
             }
-            // Metadata can succeed while YouTube withholds stream URLs. Retry in the queue,
-            // never cache an empty result as a successful download plan.
-            var attempt=0
-            while(StreamPlanner.options(details,selectedTrack(),options.audioOnly).isEmpty() && attempt<2){
-                delay(1000L shl attempt++)
-                awaitNetwork(row.id,prefs,"FETCHING")
-                details=backend.refreshStreams(row.ytId)
-                remembered=dao.channelLanguage(details.channelId)
-            }
+            // The backend owns bounded extraction retries. Do not multiply them per queue item.
+            dao.metadata(row.id,details.title,details.channelName,details.thumbnail)
             val refreshMutex=Mutex();var refreshed=false
             suspend fun refresh(){refreshMutex.withLock{if(!refreshed){details=backend.refreshStreams(row.ytId);refreshed=true}}}
             var plan=quality();pinned=plan
@@ -199,7 +192,7 @@ private class StreamExpired:IOException()
             state.save();wake?.let{if(it.isHeld)it.release()};wake=null;dao.state(row.id,"MUXING")
             storage.finish(row,options.copy(trackId=selectedTrack()?.id),details,plan,File(dir,"video.part").takeIf{it.exists()},File(dir,"audio.part").takeIf{it.exists()})
             dao.progress(row.id,total,total);dao.state(row.id,"DONE");dir.deleteRecursively()
-        }catch(e:CancellationException){throw e}catch(e:Exception){if(dao.download(row.id)?.state !in setOf("CANCELED","PAUSED"))dao.state(row.id,"FAILED",Errors.code(e))}
+        }catch(e:TimeoutCancellationException){dao.state(row.id,"FAILED","TIMEOUT")}catch(e:CancellationException){throw e}catch(e:Exception){if(dao.download(row.id)?.state !in setOf("CANCELED","PAUSED"))dao.state(row.id,"FAILED",Errors.code(e))}
         finally {if(dir.exists())runCatching{state.save()};wake?.let{if(it.isHeld)it.release()}}
     }
     private fun register(id:Long,call:Call){calls.computeIfAbsent(id){ConcurrentHashMap.newKeySet()}.add(call)}

@@ -162,4 +162,6 @@
     <string name="accent_amber">Amber</string>
     <string name="accent_rose">Rose</string>
     <string name="accent_blue">Blue</string>
+    <string name="error_timeout">YouTube took too long to respond. You can try again.</string>
+    <string name="error_no_streams">No downloadable formats were returned for this video. Try again in a few minutes.</string>
 </resources>

@@ -5,3 +5,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "AstraYT"
 include(":app")
+
+include(":extractor-patched")
