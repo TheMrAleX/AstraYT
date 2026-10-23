@@ -96,8 +96,8 @@ import kotlin.random.Random
     }
 }
 
-@Composable fun SingularityIcon(icon: ImageVector,description: String,onClick: ()->Unit,modifier: Modifier=Modifier) {
-    Box(modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).clickable(role=Role.Button,onClick=onClick),contentAlignment=Alignment.Center){Icon(icon,description,tint=SingularityTheme.colors.text,modifier=Modifier.size(22.dp))}
+@Composable fun SingularityIcon(icon: ImageVector,description: String,onClick: ()->Unit,modifier: Modifier=Modifier,enabled:Boolean=true) {
+    Box(modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).clickable(enabled=enabled,role=Role.Button,onClick=onClick),contentAlignment=Alignment.Center){Icon(icon,description,tint=if(enabled)SingularityTheme.colors.text else SingularityTheme.colors.low,modifier=Modifier.size(22.dp))}
 }
 
 @Composable fun GlassCard(modifier: Modifier=Modifier,content: @Composable ColumnScope.()->Unit) {

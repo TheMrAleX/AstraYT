@@ -197,7 +197,7 @@
     <string name="player_track">Track %1$d</string>
     <string name="error_subtitle_format">Choose an SRT, VTT, TTML, ASS or SSA subtitle file.</string>
     <string name="error_subtitle_size">The subtitle file exceeds 10 MB.</string>
-    <string name="quality_available">This video only offers up to %1$dp.</string>
+    <string name="quality_available">Recovered quality for this download: %1$dp.</string>
     <string name="embedded_audio">The audio included in the video will be saved without re-encoding.</string>
     <string name="player_offline">Saved to your library</string>
     <string name="player_channel_saved">%1$d in your library</string>
@@ -209,4 +209,8 @@
     <string name="player_next">Next video</string>
     <string name="player_replay">Replay</string>
     <string name="player_exit_fullscreen">Exit fullscreen</string>
+    <string name="capture_open_options">View options</string>
+    <string name="capture_modal_hint">Quality, audio and download in one place</string>
+    <string name="quality_incomplete">Only a few qualities were recovered. This does not confirm the video’s maximum quality.</string>
+    <string name="find_more_formats">Find more qualities</string>
 </resources>

@@ -20,13 +20,17 @@ object StreamPlanner {
             val container=if(audio==mp4)"m4a"else"webm"
             return listOf(QualityOption(if(container=="m4a")"M4A"else"WebM Opus",null,audio,container,0,bytes(audio)))
         }
+        val pinned=if(pinnedAudioId!=null)track?.copy(streams=track.streams.filter{it.id==pinnedAudioId})else null
+        val progressiveAudio=details.videos.filter{!it.videoOnly && it.format=="mp4"}.let{sources->sources.firstOrNull{it.id==pinnedAudioId} ?: sources.minByOrNull{bytes(it)}}.takeIf{it?.id==pinnedAudioId || track==null || track.type=="ORIGINAL" || track.default}
+        val mp4Audio=progressiveAudio?.takeIf{it.id==pinnedAudioId} ?: pinned?.bestStreamForMp4 ?: track?.bestStreamForMp4 ?: progressiveAudio
+        val webmAudio=pinned?.bestStreamForWebm ?: track?.bestStreamForWebm
         val videoOnly=details.videos.filter{it.videoOnly}
         val sources=videoOnly.ifEmpty{details.videos.filter{!it.videoOnly}}
         val planned=sources.filter{it.height>0}.groupBy{it.height}.mapNotNull { (height,streams)->
-            val h264=streams.filter{(!it.videoOnly || track?.bestStreamForMp4!=null) && it.format=="mp4" && (it.codec.startsWith("avc",true) || it.codec.contains("h264",true) || (it.codec.isBlank() && it.id in setOf("18","22","133","134","135","136","137","160","212","264","298","299")))}.maxByOrNull{it.fps}
-            val stream=if(height<=1080 && h264!=null)h264 else streams.filter{(!it.videoOnly || track?.bestStreamForWebm!=null) && it.format=="webm" && (it.codec.contains("vp9",true)||it.codec.startsWith("vp09",true)||(it.codec.isBlank() && it.id in setOf("242","243","244","247","248","271","272","278","302","303","308","313","315")))}.maxByOrNull{it.fps} ?: return@mapNotNull null
+            val h264=streams.filter{(!it.videoOnly || mp4Audio!=null) && it.format=="mp4" && (it.codec.startsWith("avc",true) || it.codec.contains("h264",true) || (it.codec.isBlank() && it.id in setOf("18","22","133","134","135","136","137","160","212","264","298","299")))}.maxByOrNull{it.fps}
+            val stream=if(height<=1080 && h264!=null)h264 else streams.filter{(!it.videoOnly || webmAudio!=null) && it.format=="webm" && (it.codec.contains("vp9",true)||it.codec.startsWith("vp09",true)||(it.codec.isBlank() && it.id in setOf("242","243","244","247","248","271","272","278","302","303","308","313","315")))}.maxByOrNull{it.fps} ?: h264 ?: return@mapNotNull null
             val container=if(stream.format=="mp4")"mp4" else "webm"
-            val audio=if(stream.videoOnly)if(container=="mp4")track?.bestStreamForMp4 else track?.bestStreamForWebm else null
+            val audio=if(stream.videoOnly)if(container=="mp4")mp4Audio else webmAudio else null
             if(stream.videoOnly && audio==null)return@mapNotNull null
             val size=bytes(stream)+bytes(audio)
             QualityOption("${height}p"+(if(stream.fps>=50)" ${stream.fps}" else "")+(if(container=="webm")" WebM"else ""),stream,audio,container,height,size,stream.fps,stream.hdr)

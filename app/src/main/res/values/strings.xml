@@ -197,7 +197,7 @@
     <string name="player_track">Pista %1$d</string>
     <string name="error_subtitle_format">Selecciona subtítulos SRT, VTT, TTML, ASS o SSA.</string>
     <string name="error_subtitle_size">El archivo de subtítulos supera los 10 MB.</string>
-    <string name="quality_available">Este vídeo solo ofrece hasta %1$dp.</string>
+    <string name="quality_available">Calidad recuperada para esta descarga: %1$dp.</string>
     <string name="embedded_audio">Se guardará el audio incluido en el vídeo, sin recodificar.</string>
     <string name="player_offline">Guardado en tu biblioteca</string>
     <string name="player_channel_saved">%1$d en tu biblioteca</string>
@@ -209,4 +209,8 @@
     <string name="player_next">Vídeo siguiente</string>
     <string name="player_replay">Volver a reproducir</string>
     <string name="player_exit_fullscreen">Salir de pantalla completa</string>
+    <string name="capture_open_options">Ver opciones</string>
+    <string name="capture_modal_hint">Calidad, audio y descarga en un solo lugar</string>
+    <string name="quality_incomplete">Se recuperaron pocas calidades. Esto no confirma la calidad máxima del vídeo.</string>
+    <string name="find_more_formats">Buscar más calidades</string>
 </resources>

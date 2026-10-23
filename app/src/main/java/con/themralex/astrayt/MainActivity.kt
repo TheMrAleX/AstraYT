@@ -70,7 +70,7 @@ import javax.inject.Inject
     LaunchedEffect(isPlayer){onPlayerVisible(isPlayer)}
     LaunchedEffect(Unit){listOf(main,capture,queue,library,settings).forEach{model->launch{model.effects.receiveAsFlow().collect{toast=it}}}}
     LaunchedEffect(toast){if(toast!=null){delay(3500);toast=null}}
-    LaunchedEffect(shared,requestedScreen,downloadedId,prefs.onboardingDone){if(prefs.onboardingDone){if(shared.isNotBlank()){capture.input(shared,true);nav.navigate(Capture){launchSingleTop=true}}else if(requestedScreen=="queue")nav.navigate(Queue){launchSingleTop=true}else if(requestedScreen=="player" && downloadedId>=0){main.playDownloaded(downloadedId);nav.navigate(PlayerRoute){launchSingleTop=true}};if(shared.isNotBlank() || requestedScreen.isNotBlank())onConsumed()}}
+    LaunchedEffect(shared,requestedScreen,downloadedId,prefs.onboardingDone){if(prefs.onboardingDone){if(shared.isNotBlank()){capture.input(shared,true)}else if(requestedScreen=="queue")nav.navigate(Queue){launchSingleTop=true}else if(requestedScreen=="player" && downloadedId>=0){main.playDownloaded(downloadedId);nav.navigate(PlayerRoute){launchSingleTop=true}};if(shared.isNotBlank() || requestedScreen.isNotBlank())onConsumed()}}
     val manager=remember{context.getSystemService(PowerManager::class.java)}
     val animations=prefs.animationsEnabled && !manager.isPowerSaveMode && SystemSettings.Global.getFloat(context.contentResolver,SystemSettings.Global.ANIMATOR_DURATION_SCALE,1f)>0
     AstraTheme(prefs.amoledPureBlack,prefs.accentPreset,animations) {
@@ -102,6 +102,7 @@ import javax.inject.Inject
                 }
                 }
             }
+            if(prefs.onboardingDone && !pip)CaptureModal(capture,prefs)
             toast?.let{Toast(stringResource(it),Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start=16.dp,end=16.dp,bottom=if(isPlayer)24.dp else 104.dp))}
         }
     }

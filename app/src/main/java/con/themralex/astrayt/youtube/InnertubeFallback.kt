@@ -8,28 +8,47 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager
 import java.io.IOException
 
-/** Independent mobile client for empty/failed VisionOS responses. Client revision from yt-dlp. */
+/** Bounded complementary clients for partial responses. Revisions verified against yt-dlp. */
 internal class InnertubeFallback(private val client:OkHttpClient) {
-    fun details(id:String,metadata:VideoDetails?):VideoDetails {
-        val userAgent=USER_AGENT
-        val body=buildJsonObject {
-            put("context",buildJsonObject {put("client",buildJsonObject {
-                put("clientName","ANDROID_VR");put("clientVersion","1.65.10");put("deviceMake","Oculus");put("deviceModel","Quest 3");put("androidSdkVersion",32);put("osName","Android");put("osVersion","12L");put("hl",java.util.Locale.getDefault().language);put("userAgent",userAgent)
-            })})
-            put("videoId",id);put("contentCheckOk",true);put("racyCheckOk",true)
+    fun details(id:String,metadata:VideoDetails?,forceAll:Boolean=false):VideoDetails {
+        var best=metadata
+        var failure:Exception?=null
+        for(profile in listOf("ANDROID_VR","WEB_EMBEDDED_PLAYER","IOS")){
+            if(Thread.currentThread().isInterrupted)throw InterruptedException()
+            try {
+                val embedded=profile=="WEB_EMBEDDED_PLAYER"
+                val version=when(profile){"ANDROID_VR"->"1.65.10";"IOS"->"21.26.4";else->"2.20260708.00.00"}
+                val clientId=when(profile){"ANDROID_VR"->"28";"IOS"->"5";else->"56"}
+                val userAgent=when(profile){"ANDROID_VR"->USER_AGENT;"IOS"->"com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)";else->"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15"}
+                val timestamp=if(embedded)try{YoutubeJavaScriptPlayerManager.getSignatureTimestamp(id)}catch(e:InterruptedException){throw e}catch(_:Exception){null}else null
+                val body=buildJsonObject {
+                    put("context",buildJsonObject {
+                        put("client",buildJsonObject {
+                            put("clientName",profile);put("clientVersion",version);put("hl",java.util.Locale.getDefault().language);put("userAgent",userAgent)
+                            if(profile=="ANDROID_VR"){put("deviceMake","Oculus");put("deviceModel","Quest 3");put("androidSdkVersion",32);put("osName","Android");put("osVersion","12L")}
+                            if(profile=="IOS"){put("deviceMake","Apple");put("deviceModel","iPhone16,2");put("osName","iPhone");put("osVersion","18.3.2.22D82")}
+                        })
+                        if(embedded)put("thirdParty",buildJsonObject{put("embedUrl","https://www.youtube.com/embed/$id")})
+                    })
+                    put("videoId",id);put("contentCheckOk",true);put("racyCheckOk",true)
+                    if(embedded)put("playbackContext",buildJsonObject{put("contentPlaybackContext",buildJsonObject{put("html5Preference","HTML5_PREF_WANTS");timestamp?.let{put("signatureTimestamp",it)}})})
+                }
+                val headers=mapOf("User-Agent" to userAgent,"Referer" to "https://www.youtube.com/","Origin" to "https://www.youtube.com")
+                val request=Request.Builder().url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false").apply{headers.forEach{(key,value)->header(key,value)}}
+                    .header("X-YouTube-Client-Name",clientId).header("X-YouTube-Client-Version",version)
+                    .post(body.toString().toRequestBody("application/json".toMediaType())).build()
+                val call=client.newCall(request).apply{timeout().timeout(8,java.util.concurrent.TimeUnit.SECONDS)}
+                val response=call.execute().use{if(!it.isSuccessful)throw IOException("HTTP ${it.code}");Json.parseToJsonElement(it.body.string()).jsonObject}
+                val result=parse(id,response,best,headers,signature={YoutubeJavaScriptPlayerManager.deobfuscateSignature(id,it)}){YoutubeJavaScriptPlayerManager.getUrlWithThrottlingParameterDeobfuscated(id,it)}
+                best=best?.let{StreamRecovery.merge(it,result)} ?: result
+                if(!forceAll && !StreamRecovery.needsAlternate(best))return best
+            }catch(e:InterruptedException){throw e}catch(e:java.util.concurrent.CancellationException){throw e}catch(e:Exception){if(e.message?.contains("429")==true)throw e;failure=e}
         }
-        val request=Request.Builder().url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
-            .header("User-Agent",userAgent).header("X-YouTube-Client-Name","28").header("X-YouTube-Client-Version","1.65.10")
-            .post(body.toString().toRequestBody("application/json".toMediaType())).build()
-        val response=client.newCall(request).execute().use {
-            if(!it.isSuccessful)throw IOException("HTTP ${it.code}")
-            Json.parseToJsonElement(it.body.string()).jsonObject
-        }
-        return parse(id,response,metadata) {url->YoutubeJavaScriptPlayerManager.getUrlWithThrottlingParameterDeobfuscated(id,url)}
+        return best?.takeIf{it.videos.isNotEmpty() || it.tracks.isNotEmpty()} ?: throw (failure ?: NoStreams())
     }
     companion object {
         private const val USER_AGENT="com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
-        internal fun parse(id:String,response:JsonObject,metadata:VideoDetails?,decode:(String)->String):VideoDetails {
+        internal fun parse(id:String,response:JsonObject,metadata:VideoDetails?,headers:Map<String,String> = mapOf("User-Agent" to USER_AGENT),signature:(String)->String={throw NoStreams()},decode:(String)->String):VideoDetails {
             val status=response.obj("playabilityStatus").text("status")
             if(status!="OK")throw IOException("YouTube: $status")
             val v=response.obj("videoDetails")
@@ -41,13 +60,12 @@ internal class InnertubeFallback(private val client:OkHttpClient) {
             val videos=mutableListOf<MediaStream>()
             for(element in formats) {
                 val f=element as? JsonObject ?: continue
-                if(f["drmFamilies"]!=null || f["drmTrackType"]!=null)continue
-                val raw=f.text("url");if(raw.isBlank())continue
-                val url=try{decode(raw)}catch(e:InterruptedException){throw e}catch(e:java.util.concurrent.CancellationException){throw e}catch(_:Exception){continue}
+                if((f["drmFamilies"] as? JsonArray)?.isNotEmpty()==true || f.text("drmTrackType").isNotBlank() || f.text("type")=="FORMAT_STREAM_TYPE_OTF")continue
+                val url=try{decode(FormatUrl.resolve(f,signature) ?: continue)}catch(e:InterruptedException){throw e}catch(e:java.util.concurrent.CancellationException){throw e}catch(_:Exception){continue}
                 val mime=f.text("mimeType")
                 val codec=Regex("codecs=\"([^\"]+)\"").find(mime)?.groupValues?.get(1).orEmpty()
                 val isAudio=mime.startsWith("audio/")
-                val stream=MediaStream(f.text("itag"),url,if(mime.contains("webm"))"webm"else if(isAudio)"m4a"else"mp4",codec,f.number("bitrate").toInt(),f.number("height").toInt(),f.number("fps").toInt(),f.number("contentLength"),!isAudio && !codec.contains(","),f.text("qualityLabel").contains("HDR"),headers=mapOf("User-Agent" to USER_AGENT))
+                val stream=MediaStream(f.text("itag"),url,if(mime.contains("webm"))"webm"else if(isAudio)"m4a"else"mp4",codec,f.number("bitrate").toInt(),f.number("height").toInt().takeIf{it>0} ?: Regex("(\\d+)p").find(f.text("qualityLabel"))?.groupValues?.get(1)?.toIntOrNull() ?: 0,f.number("fps").toInt(),f.number("contentLength"),!isAudio && !codec.contains(","),f.text("qualityLabel").contains("HDR"),headers=headers)
                 if(isAudio){val track=f.obj("audioTrack");val key=track.text("id").ifBlank{"original"};audio.getOrPut(key){mutableListOf()}.add(stream);trackData[key]=track}
                 else if(mime.startsWith("video/"))videos.add(stream)
             }

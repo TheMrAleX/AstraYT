@@ -73,4 +73,44 @@ class StreamRecoveryTest {
         assertEquals("18",resumed.audio?.id)
     }
 
+    @Test fun originalAudioAliasesCombineAacAndOpusWithoutChangingTheSavedTrackId() {
+        val mp4Track=original().copy(id="en-original",locale="en-US")
+        val opus=audio.copy(id="251",format="webm",codec="opus")
+        val vp9=hd.copy(id="313",format="webm",codec="vp09",height=2160)
+        val combined=StreamRecovery.merge(details(listOf(progressive),listOf(mp4Track)),details(listOf(vp9),listOf(original(opus).copy(id="en.4",locale="en"))))
+        assertEquals("en-original",combined.tracks.single().id)
+        assertEquals(setOf("140","251"),combined.tracks.single().streams.map{it.id}.toSet())
+        assertEquals(2160,StreamPlanner.options(combined,combined.tracks.single()).single().height)
+    }
+    @Test fun distinctDubbedLanguagesAndRegionsAreNeverMerged() {
+        val es=original().copy(id="es",locale="es-ES",type="DUBBED")
+        val lat=es.copy(id="es-419",locale="es-419")
+        val combined=StreamRecovery.merge(details(emptyList(),listOf(es)),details(emptyList(),listOf(lat)))
+        assertEquals(2,combined.tracks.size)
+    }
+    @Test fun hdCanUseAudioFromProgressiveMp4WhenIndependentAudioIsAbsent() {
+        val plans=StreamPlanner.options(details(listOf(progressive,hd)),null)
+        assertEquals(1080,plans.single().height)
+        assertEquals("18",plans.single().audio?.id)
+        assertEquals("137",plans.single().video?.id)
+    }
+    @Test fun pinnedProgressiveAudioForHdSurvivesWhenStandaloneAudioAppears() {
+        val track=original()
+        val plan=StreamPlanner.options(details(listOf(progressive,hd),listOf(track)),track,pinnedAudioId="18").single()
+        assertEquals("18",plan.audio?.id)
+        assertEquals(1080,plan.height)
+    }
+    @Test fun h264Above1080IsAvailableWhenThereIsNoCompatibleWebmAlternative() {
+        val track=original()
+        val plan=StreamPlanner.options(details(listOf(hd.copy(height=1440)),listOf(track)),track).single()
+        assertEquals(1440,plan.height);assertEquals("mp4",plan.container)
+    }
+
+    @Test fun resumedHdKeepsItsPinnedProgressiveAudioEvenIfPreferencesNowPickADub() {
+        val dub=original().copy(id="es",locale="es",type="DUBBED",default=false)
+        val plan=StreamPlanner.options(details(listOf(progressive,hd),listOf(dub)),dub,pinnedAudioId="18").single()
+        assertEquals("18",plan.audio?.id)
+        assertEquals(1080,plan.height)
+    }
+
 }

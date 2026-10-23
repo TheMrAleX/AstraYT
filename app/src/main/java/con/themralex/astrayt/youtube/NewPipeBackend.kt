@@ -29,10 +29,11 @@ import javax.inject.*
             NewPipe.setPreferredLocalization(Localization(language))
         }
     }
-    override suspend fun details(videoId:String):VideoDetails {
+    override suspend fun details(videoId:String):VideoDetails=load(videoId,false)
+    private suspend fun load(videoId:String,forceAlternate:Boolean):VideoDetails {
         init()
-        mutex.withLock { cache[videoId]?.takeIf{System.currentTimeMillis()-it.fetchedAt<600000}?.let{return it} }
-        return flights.get(videoId) {
+        mutex.withLock { cache[videoId]?.takeUnless{forceAlternate}?.takeIf{System.currentTimeMillis()-it.fetchedAt<600000}?.let{return it} }
+        return flights.get(if(forceAlternate)"$videoId:full"else videoId) {
             // NewPipe uses process-wide mutable player caches. Never extract/clear them concurrently.
             extractorMutex.withLock {
                 var result:VideoDetails?=null
@@ -43,8 +44,8 @@ import javax.inject.*
                                 if(Errors.code(e) !in setOf("NO_STREAMS","EXTRACTOR"))throw e
                                 return@runInterruptible InnertubeFallback(client).details(videoId,(e as? NoStreams)?.metadata)
                             }
-                            if(StreamRecovery.needsAlternate(primary))try {
-                                StreamRecovery.merge(primary,InnertubeFallback(client).details(videoId,primary))
+                            if(forceAlternate || StreamRecovery.needsAlternate(primary))try {
+                                StreamRecovery.merge(primary,InnertubeFallback(client).details(videoId,primary,forceAlternate))
                             }catch(e:InterruptedException){throw e}catch(e:CancellationException){throw e}catch(_:Exception){primary}
                             else primary
                         } }
@@ -62,7 +63,7 @@ import javax.inject.*
             }
         }
     }
-    override suspend fun refreshStreams(videoId:String):VideoDetails {mutex.withLock{cache.remove(videoId)};return details(videoId)}
+    override suspend fun refreshStreams(videoId:String):VideoDetails {mutex.withLock{cache.remove(videoId)};return load(videoId,true)}
     override suspend fun resolve(url:String):ResolvedLink {
         return when(val link=UrlParser.parse(url)) {
             is YoutubeLink.Video->ResolvedLink.Video(details(link.id))

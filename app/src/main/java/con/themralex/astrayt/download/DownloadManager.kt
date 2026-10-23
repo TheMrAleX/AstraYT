@@ -119,7 +119,7 @@ private class StreamExpired:IOException()
             fun selectedTrack()=details.tracks.firstOrNull{it.id==options.trackId} ?: if(options.planPinned && options.trackId!=null)throw NoStreams() else AudioTrackSelector.select(details.tracks,prefs.preferredAudioLanguage,remembered,prefs.autoPickDubbed,batch=true).track
             var pinned:QualityOption?=null
             fun quality():QualityOption {
-                val progressiveAudio=options.audioOnly && options.planPinned && details.videos.any{it.id==options.pinnedAudioId && !it.videoOnly}
+                val progressiveAudio=options.planPinned && details.videos.any{it.id==options.pinnedAudioId && !it.videoOnly}
                 val all=StreamPlanner.options(details,if(progressiveAudio)null else selectedTrack(),options.audioOnly,options.pinnedAudioId.takeIf{options.planPinned})
                 val previous=pinned
                 return (if(previous==null && !options.planPinned)StreamPlanner.default(all,options.height)
@@ -132,7 +132,7 @@ private class StreamExpired:IOException()
             val refreshMutex=Mutex();var refreshed=false
             suspend fun refresh(){refreshMutex.withLock{if(!refreshed){details=backend.refreshStreams(row.ytId);refreshed=true}}}
             var plan=quality();pinned=plan
-            options=options.copy(trackId=if(plan.extractAudio)options.trackId else selectedTrack()?.id,pinnedVideoId=plan.video?.id,pinnedAudioId=plan.audio?.id,container=plan.container,height=plan.height,planPinned=true)
+            options=options.copy(trackId=if(options.planPinned || plan.extractAudio)options.trackId else selectedTrack()?.id,pinnedVideoId=plan.video?.id,pinnedAudioId=plan.audio?.id,container=plan.container,height=plan.height,planPinned=true)
             dao.options(row.id,Json.encodeToString(options))
             dao.metadata(row.id,details.title,details.channelName,details.thumbnail)
             awaitNetwork(row.id,prefs)
