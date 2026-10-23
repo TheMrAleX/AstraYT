@@ -37,8 +37,9 @@ import coil3.compose.AsyncImage
     val c=SingularityTheme.colors;val context=LocalContext.current;val motion=SingularityTheme.motion.enabled
     val related=remember(all,video.id){all.filter{it.id!=video.id}.sortedBy{it.channelId!=video.channelId}.take(30)}
     val channelCount=remember(all,video.channelId){all.count{it.channelId==video.channelId}}
-    val meta=remember(video.id,video.viewCount,video.uploadDateMs){buildList{
-        if(video.viewCount>0)add(context.getString(R.string.views_text,Formatters.views(video.viewCount)))
+    val viewsLabel=stringResource(R.string.views_text,Formatters.views(video.viewCount))
+    val meta=remember(video.id,video.viewCount,video.uploadDateMs,viewsLabel){buildList{
+        if(video.viewCount>0)add(viewsLabel)
         if(video.uploadDateMs>0)add(DateUtils.getRelativeTimeSpanString(video.uploadDateMs,System.currentTimeMillis(),DateUtils.DAY_IN_MILLIS).toString())
     }.joinToString(" · ")}
     LazyColumn(modifier,state=listState,contentPadding=PaddingValues(bottom=32.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {

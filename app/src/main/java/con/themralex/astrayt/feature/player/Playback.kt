@@ -26,6 +26,7 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
     private val mutex=Mutex()
     private val selection=Mutex()
     private var preparing=false
+    private var audioPreference=false
     private var target:java.lang.ref.WeakReference<androidx.media3.ui.PlayerView>?=null
     @androidx.annotation.OptIn(markerClass=[androidx.media3.common.util.UnstableApi::class])
     fun attachSurface(view:androidx.media3.ui.PlayerView){
@@ -42,11 +43,13 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
         if(preparing)return
         val video=playlist.firstOrNull{it.id.toString()==player.currentMediaItem?.mediaId}
         val index=playlist.indexOfFirst{it.id==video?.id}
-        _state.value=_state.value.copy(video=video,playing=player.isPlaying,buffering=player.playbackState==Player.STATE_BUFFERING,
+        val audioMode=audioPreference || video?.kind=="AUDIO"
+        _state.value=_state.value.copy(video=video,audioOnly=audioMode,playing=player.isPlaying,buffering=player.playbackState==Player.STATE_BUFFERING,
             position=player.currentPosition.coerceAtLeast(0),duration=player.duration.takeIf{it>0} ?: video?.durationMs ?: 0,
             buffered=player.bufferedPosition.coerceAtLeast(0),speed=player.playbackParameters.speed,
             audioTracks=tracks(player,C.TRACK_TYPE_AUDIO),subtitleTracks=tracks(player,C.TRACK_TYPE_TEXT),
             playWhenReady=player.playWhenReady,ended=player.playbackState==Player.STATE_ENDED,errorCode=player.playerError?.errorCode,hasPrevious=index>0,hasNext=index>=0 && index<playlist.lastIndex)
+        if(player.trackSelectionParameters.getTrackTypeDisabled(C.TRACK_TYPE_VIDEO)!=audioMode)player.trackSelectionParameters=player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO,audioMode).build()
     }
     private val _state=MutableStateFlow(PlaybackState())
     val state=_state.asStateFlow()
@@ -113,6 +116,7 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
     }
     suspend fun play(video:VideoEntity,all:List<VideoEntity> = listOf(video),audioOnly:Boolean=false)=selection.withLock {
         val previous=_state.value
+        audioPreference=audioOnly
         preparing=true
         controller?.pause();controller?.clearMediaItems()
         val position=PlayerTimeline.resume(video.positionMs,video.durationMs)
@@ -121,7 +125,7 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
             previous.video?.let{dao.position(it.id,previous.position)}
             val media=connect();playlist=all.ifEmpty{listOf(video)}.let{if(it.none{row->row.id==video.id})listOf(video)+it else it}
             setQueue(media,video,position)
-            setAudioOnly(audioOnly || video.kind=="AUDIO");media.prepare();media.play()
+            setAudioOnly(audioOnly);media.prepare();media.play()
         }catch(e:CancellationException){throw e}catch(_:Exception){
             _state.value=_state.value.copy(buffering=false,playing=false,playWhenReady=false,errorCode=PlaybackException.ERROR_CODE_IO_UNSPECIFIED)
         }finally{preparing=false;controller?.takeIf{it.currentMediaItem?.mediaId==video.id.toString()}?.let{update(it)}}
@@ -132,7 +136,12 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
         val items=withContext(Dispatchers.IO){queue.map{row->MediaItem.Builder().setMediaId(row.id.toString()).setUri(row.contentUri).setSubtitleConfigurations(savedSubtitles(row)).setMediaMetadata(MediaMetadata.Builder().setTitle(row.title).setArtist(row.channelName).setArtworkUri(row.thumbnailPath.takeIf{it.isNotBlank()}?.let{Uri.fromFile(File(it))}).build()).build()}}
         media.setMediaItems(items,queue.indexOfFirst{it.id==video.id}.coerceAtLeast(0),position)
     }
-    fun setAudioOnly(enabled:Boolean){controller?.let{it.trackSelectionParameters=it.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO,enabled).build()};_state.value=_state.value.copy(audioOnly=enabled)}
+    fun setAudioOnly(enabled:Boolean){
+        audioPreference=enabled
+        val effective=enabled || state.value.video?.kind=="AUDIO"
+        controller?.let{it.trackSelectionParameters=it.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO,effective).build()}
+        _state.value=_state.value.copy(audioOnly=effective)
+    }
     fun refreshAutoplay() {scope.launch{selection.withLock{
         val video=_state.value.video ?: return@withLock;val media=controller ?: return@withLock
         val position=media.currentPosition;val playing=media.playWhenReady
@@ -142,13 +151,13 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
     suspend fun toggle(){val media=connect();if(media.playWhenReady && media.playbackState!=Player.STATE_ENDED && media.playerError==null){media.pause();save()}else{if(media.playbackState==Player.STATE_ENDED)media.seekTo(0);if(media.playerError!=null)media.prepare();media.play()}}
     fun retry(){val video=state.value.video ?: return;val media=controller
         if(media?.currentMediaItem?.mediaId==video.id.toString()){media.prepare();media.play()}
-        else scope.launch{play(video,playlist,state.value.audioOnly)}
+        else scope.launch{play(video,playlist,audioPreference)}
     }
     suspend fun close()=selection.withLock{save();controller?.stop();controller?.clearMediaItems();_state.value=PlaybackState()}
     fun seek(position:Long){controller?.seekTo(position.coerceIn(0,state.value.duration.coerceAtLeast(0)))}
     fun skip(delta:Long)=seek((controller?.currentPosition ?: state.value.position)+delta)
     fun speed(value:Float){controller?.setPlaybackSpeed(value.coerceIn(.25f,2f))}
-    fun next(){val index=playlist.indexOfFirst{it.id==state.value.video?.id};playlist.getOrNull(index+1)?.let{next->scope.launch{play(next,playlist,_state.value.audioOnly)}}}
-    fun previous(){if((controller?.currentPosition ?: state.value.position)>3000){seek(0);return};val index=playlist.indexOfFirst{it.id==state.value.video?.id};val previous=playlist.getOrNull(index-1);if(previous!=null)scope.launch{play(previous,playlist,_state.value.audioOnly)}else seek(0)}
+    fun next(){val index=playlist.indexOfFirst{it.id==state.value.video?.id};playlist.getOrNull(index+1)?.let{next->scope.launch{play(next,playlist,audioPreference)}}}
+    fun previous(){if((controller?.currentPosition ?: state.value.position)>3000){seek(0);return};val index=playlist.indexOfFirst{it.id==state.value.video?.id};val previous=playlist.getOrNull(index-1);if(previous!=null)scope.launch{play(previous,playlist,audioPreference)}else seek(0)}
     suspend fun save(){_state.value.video?.let{dao.position(it.id,state.value.position)}}
 }
