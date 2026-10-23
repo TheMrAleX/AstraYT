@@ -199,4 +199,14 @@
     <string name="error_subtitle_size">The subtitle file exceeds 10 MB.</string>
     <string name="quality_available">This video only offers up to %1$dp.</string>
     <string name="embedded_audio">The audio included in the video will be saved without re-encoding.</string>
+    <string name="player_offline">Saved to your library</string>
+    <string name="player_channel_saved">%1$d in your library</string>
+    <string name="player_no_next">The next videos you save will appear here.</string>
+    <string name="player_seek">Playback position</string>
+    <string name="player_minimize">Minimize player</string>
+    <string name="player_error">This file could not be played.</string>
+    <string name="player_previous">Previous video</string>
+    <string name="player_next">Next video</string>
+    <string name="player_replay">Replay</string>
+    <string name="player_exit_fullscreen">Exit fullscreen</string>
 </resources>

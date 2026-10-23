@@ -11,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.runtime.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.ui.*
@@ -24,6 +25,10 @@ import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.*
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import con.themralex.astrayt.core.designsystem.*
 import con.themralex.astrayt.feature.*
 import con.themralex.astrayt.feature.player.*
@@ -72,26 +77,28 @@ import javax.inject.Inject
         VoidBackground {
             if(!prefs.onboardingDone)OnboardingScreen(settings)
             else {
-                Column(Modifier.fillMaxSize().then(if(pip)Modifier else Modifier.statusBarsPadding()).imePadding()) {
-                Box(Modifier.weight(1f)) {
-                    NavHost(navController=nav,startDestination=Capture,enterTransition={fadeIn(tween(if(animations)220 else 0))},exitTransition={fadeOut(tween(if(animations)180 else 0))}) {
-                        composable<Capture>{Column{if(update!=null)SingularityButton(stringResource(R.string.update_available),{external(context,update!!)},Modifier.fillMaxWidth(),"secondary");Box(Modifier.weight(1f)){CaptureScreen(capture,prefs,all,{v->main.play(v,all);nav.navigate(PlayerRoute)})}}}
-                        composable<Queue>{QueueScreen(queue){id->main.playDownloaded(id);nav.navigate(PlayerRoute)}}
-                        composable<Library>{LibraryScreen(library,{v,list,audio->main.play(v,list,audio);nav.navigate(PlayerRoute)},{nav.navigate(Capture)},{id->nav.navigate(ChannelRoute(id))})}
-                        composable<SettingsRoute>{SettingsScreen(settings,all)}
-                        composable<ChannelRoute>{backStack->ChannelScreen(backStack.toRoute<ChannelRoute>().id,all,{v,list->main.play(v,list);nav.navigate(PlayerRoute)})}
+                val density=LocalDensity.current
+                var dockHeight by remember{mutableStateOf(0.dp)}
+                Box(Modifier.fillMaxSize().imePadding()) {
+                    NavHost(navController=nav,startDestination=Capture,modifier=Modifier.fillMaxSize(),enterTransition={fadeIn(tween(if(animations)180 else 0))},exitTransition={fadeOut(tween(if(animations)140 else 0))},popEnterTransition={fadeIn(tween(if(animations)220 else 0))}) {
+                        composable<Capture>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){Column{if(update!=null)SingularityButton(stringResource(R.string.update_available),{external(context,update!!)},Modifier.fillMaxWidth(),"secondary");Box(Modifier.weight(1f)){CaptureScreen(capture,prefs,all,{v->main.play(v,all);nav.navigate(PlayerRoute){launchSingleTop=true}})}}}}
+                        composable<Queue>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){QueueScreen(queue){id->main.playDownloaded(id);nav.navigate(PlayerRoute){launchSingleTop=true}}}}
+                        composable<Library>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){LibraryScreen(library,{v,list,audio->main.play(v,list,audio);nav.navigate(PlayerRoute){launchSingleTop=true}},{nav.navigate(Capture)},{id->nav.navigate(ChannelRoute(id))})}}
+                        composable<SettingsRoute>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){SettingsScreen(settings,all)}}
+                        composable<ChannelRoute>{backStack->Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){ChannelScreen(backStack.toRoute<ChannelRoute>().id,all,{v,list->main.play(v,list);nav.navigate(PlayerRoute){launchSingleTop=true}})}}
                         composable<PlayerRoute>(
-                            enterTransition={slideInVertically(tween(if(animations)320 else 0)){it/2}+fadeIn(tween(if(animations)220 else 0))},
+                            enterTransition={slideInVertically(tween(if(animations)320 else 0,easing=FastOutSlowInEasing)){it/10}+fadeIn(tween(if(animations)180 else 0))},
                             exitTransition={fadeOut(tween(if(animations)180 else 0))},
                             popEnterTransition={fadeIn(tween(if(animations)220 else 0))},
-                            popExitTransition={slideOutVertically(tween(if(animations)280 else 0)){it/2}+fadeOut(tween(if(animations)220 else 0))}
-                        ){PlayerScreen(main,playing,all,prefs,{value->settings.change{it.copy(autoplayNext=value)}},{id->nav.navigate(ChannelRoute(id))},{nav.popBackStack()},{video->main.close();library.delete(video)},pip)}
+                            popExitTransition={slideOutVertically(tween(if(animations)260 else 0,easing=FastOutLinearInEasing)){it/8}+fadeOut(tween(if(animations)200 else 0))}
+                        ){PlayerScreen(main,playing,all,prefs,{value->settings.change{it.copy(autoplayNext=value)}},{id->nav.navigate(ChannelRoute(id))},{nav.popBackStack()},{video->main.close();library.delete(video)},pip,isPlayer)}
                     }
-                }
-                if(!isPlayer && !pip)Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    if(playing.video!=null)MiniPlayer(playing,main.playback,{nav.navigate(PlayerRoute)},{main.toggle()},{main.close()},Modifier.fillMaxWidth())
+                AnimatedVisibility(visible=!isPlayer && !pip,modifier=Modifier.align(Alignment.BottomCenter),enter=fadeIn(tween(if(animations)180 else 0))+slideInVertically(tween(if(animations)220 else 0)){it/5},exit=fadeOut(tween(if(animations)100 else 0))) {
+                Column(Modifier.fillMaxWidth().onSizeChanged{dockHeight=with(density){it.height.toDp()}}.background(SingularityTheme.colors.void).navigationBarsPadding().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    if(playing.video!=null)MiniPlayer(playing,main.playback,{nav.navigate(PlayerRoute){launchSingleTop=true}},{main.toggle()},{main.close()},Modifier.fillMaxWidth(),active=!isPlayer)
                     val selected=when{destination?.hasRoute<Queue>()==true->1;destination?.hasRoute<Library>()==true||destination?.hasRoute<ChannelRoute>()==true->2;destination?.hasRoute<SettingsRoute>()==true->3;else->0}
                     FloatingNavBar(listOf(stringResource(R.string.capture),stringResource(R.string.queue),stringResource(R.string.library),stringResource(R.string.settings)),listOf(Icons.Rounded.AddLink,Icons.Rounded.Downloading,Icons.Rounded.VideoLibrary,Icons.Rounded.Settings),selected,{index->val route:Any=when(index){1->Queue;2->Library;3->SettingsRoute;else->Capture};nav.navigate(route){popUpTo<Capture>{saveState=true};launchSingleTop=true;restoreState=true}},Modifier.fillMaxWidth())
+                }
                 }
                 }
             }

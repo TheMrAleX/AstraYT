@@ -199,4 +199,14 @@
     <string name="error_subtitle_size">El archivo de subtítulos supera los 10 MB.</string>
     <string name="quality_available">Este vídeo solo ofrece hasta %1$dp.</string>
     <string name="embedded_audio">Se guardará el audio incluido en el vídeo, sin recodificar.</string>
+    <string name="player_offline">Guardado en tu biblioteca</string>
+    <string name="player_channel_saved">%1$d en tu biblioteca</string>
+    <string name="player_no_next">Los próximos vídeos que guardes aparecerán aquí.</string>
+    <string name="player_seek">Posición de reproducción</string>
+    <string name="player_minimize">Minimizar reproductor</string>
+    <string name="player_error">No se ha podido reproducir este archivo.</string>
+    <string name="player_previous">Vídeo anterior</string>
+    <string name="player_next">Vídeo siguiente</string>
+    <string name="player_replay">Volver a reproducir</string>
+    <string name="player_exit_fullscreen">Salir de pantalla completa</string>
 </resources>

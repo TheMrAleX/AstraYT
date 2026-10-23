@@ -60,7 +60,7 @@ private data class DragState(val mode:DragMode,val value:Float=0f,val target:Lon
         .pointerInput(playback) {
             detectTapGestures(onTap={tap()},onDoubleTap={offset->
                 if(disabled){tap();return@detectTapGestures}
-                if(offset.x in size.width/3f..size.width*2/3f){playback.controller?.let{if(it.isPlaying)it.pause()else it.play()}}
+                if(offset.x in size.width/3f..size.width*2/3f){playback.controller?.let{if(it.playWhenReady)it.pause()else {if(current.ended)it.seekTo(0);it.play()}}}
                 else {val forward=offset.x>size.width/2;playback.skip(if(forward)10000 else -10000);flash=forward to ((flash?.takeIf{it.first==forward}?.second ?: 0)+10)}
                 interact()
             })
@@ -95,26 +95,28 @@ private data class DragState(val mode:DragMode,val value:Float=0f,val target:Lon
         flash?.let{(forward,seconds)->Text((if(forward)"+"else"−")+"$seconds s",color=Color.White,modifier=Modifier.align(if(forward)Alignment.CenterEnd else Alignment.CenterStart).padding(24.dp).background(Color.Black.copy(alpha=.6f),CircleShape).padding(20.dp))}
     }
 }
-@Composable internal fun ArcaSeekBar(state:PlaybackState,onSeek:(Long)->Unit,onInteract:()->Unit,modifier:Modifier=Modifier) {
-    var scrub by remember{mutableStateOf<Float?>(null)}
-    val current by rememberUpdatedState(state);val seek by rememberUpdatedState(onSeek);val interact by rememberUpdatedState(onInteract)
-    val duration=state.duration.coerceAtLeast(1)
-    val fraction=(scrub ?: state.position.toFloat()/duration).coerceIn(0f,1f)
-    val description=stringResource(R.string.duration)
-    Column(modifier) {
-        scrub?.let{Text(Formatters.duration((it*duration).toLong()),color=Color.White,style=SingularityTheme.type.caption)}
-        Box(Modifier.fillMaxWidth().height(48.dp).semantics {
-            contentDescription=description;progressBarRangeInfo=ProgressBarRangeInfo(fraction,0f..1f)
-            setProgress {value->seek((value.coerceIn(0f,1f)*current.duration).toLong());interact();true}
-        }.pointerInput(Unit){detectTapGestures{seek((it.x/size.width*current.duration).toLong());interact()}}
-            .pointerInput(Unit){detectHorizontalDragGestures(onDragStart={scrub=(it.x/size.width).coerceIn(0f,1f);interact()},onDragEnd={scrub?.let{seek((it*current.duration).toLong())};scrub=null},onDragCancel={scrub=null},onHorizontalDrag={change,dx->change.consume();scrub=((scrub ?: 0f)+dx/size.width).coerceIn(0f,1f);interact()})},contentAlignment=Alignment.CenterStart) {
-            Canvas(Modifier.fillMaxWidth().height(16.dp)) {
-                val h=3.dp.toPx();val y=(size.height-h)/2;val radius=CornerRadius(h/2)
-                drawRoundRect(Color.White.copy(alpha=.25f),Offset(0f,y),Size(size.width,h),radius)
-                drawRoundRect(Color.White.copy(alpha=.45f),Offset(0f,y),Size(size.width*(state.buffered.toFloat()/duration).coerceIn(0f,1f),h),radius)
-                drawRoundRect(YoutubeRed,Offset(0f,y),Size(size.width*fraction,h),radius)
-                drawCircle(YoutubeRed,(if(scrub!=null)8.dp else 6.dp).toPx(),Offset(size.width*fraction,size.height/2))
-            }
+@Composable internal fun ArcaSeekBar(state:PlaybackState,onSeek:(Long)->Unit,onInteract:()->Unit,modifier:Modifier=Modifier,onScrubbing:(Boolean)->Unit={}) {
+    var scrub by remember(state.video?.id){mutableStateOf<Float?>(null)}
+    val current by rememberUpdatedState(state);val seek by rememberUpdatedState(onSeek);val interact by rememberUpdatedState(onInteract);val scrubbing by rememberUpdatedState(onScrubbing)
+    val fraction=scrub ?: PlayerTimeline.fraction(state.position,state.duration)
+    val description=stringResource(R.string.player_seek)
+    DisposableEffect(state.video?.id){onDispose{scrubbing(false)}}
+    Box(modifier.fillMaxWidth().height(48.dp).semantics {
+        contentDescription=description;progressBarRangeInfo=ProgressBarRangeInfo(fraction,0f..1f)
+        setProgress {value->if(current.duration>0){seek(PlayerTimeline.seek(value,current.duration));interact();true}else false}
+    }.pointerInput(state.video?.id){detectTapGestures{if(current.duration>0 && size.width>0){seek(PlayerTimeline.seek(it.x/size.width,current.duration));interact()}}}
+        .pointerInput(state.video?.id){detectHorizontalDragGestures(onDragStart={
+            if(current.duration>0 && size.width>0){scrub=(it.x/size.width).coerceIn(0f,1f);scrubbing(true);interact()}
+        },onDragEnd={scrub?.let{seek(PlayerTimeline.seek(it,current.duration))};scrub=null;scrubbing(false);interact()},onDragCancel={scrub=null;scrubbing(false)},onHorizontalDrag={change,dx->
+            if(scrub!=null && size.width>0){change.consume();scrub=((scrub ?: 0f)+dx/size.width).coerceIn(0f,1f);interact()}
+        })},contentAlignment=Alignment.CenterStart) {
+        scrub?.let{Text(Formatters.duration(PlayerTimeline.seek(it,state.duration)),color=Color.White,style=SingularityTheme.type.caption,modifier=Modifier.align(Alignment.TopCenter).background(Color.Black.copy(alpha=.8f),RoundedCornerShape(6.dp)).padding(horizontal=8.dp))}
+        Canvas(Modifier.fillMaxWidth().height(16.dp)) {
+            val h=(if(scrub!=null)5.dp else 3.dp).toPx();val y=(size.height-h)/2;val radius=CornerRadius(h/2)
+            drawRoundRect(Color.White.copy(alpha=.25f),Offset(0f,y),Size(size.width,h),radius)
+            drawRoundRect(Color.White.copy(alpha=.45f),Offset(0f,y),Size(size.width*PlayerTimeline.fraction(state.buffered,state.duration),h),radius)
+            drawRoundRect(YoutubeRed,Offset(0f,y),Size(size.width*fraction,h),radius)
+            drawCircle(YoutubeRed,(if(scrub!=null)8.dp else 5.dp).toPx(),Offset((size.width*fraction).coerceIn(5.dp.toPx(),(size.width-5.dp.toPx()).coerceAtLeast(5.dp.toPx())),size.height/2))
         }
     }
 }
