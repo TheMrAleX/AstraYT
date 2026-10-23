@@ -220,4 +220,6 @@
     <string name="selected_audio">Audio: %1$s</string>
     <string name="error_audio_unavailable">The selected audio track is no longer available. Analyze the link again and choose a language.</string>
     <string name="remembered_audio_missing">Your remembered language is unavailable for this video. Check the selected audio before downloading.</string>
+    <string name="audio_discovery_incomplete">Not all audio languages could be checked. The audio shown may be only part of what is available.</string>
+    <string name="find_audio_languages">Find audio languages</string>
 </resources>

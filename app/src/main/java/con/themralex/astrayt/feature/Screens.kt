@@ -109,6 +109,10 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                         }
                         AudioTrackSelector.sorted(details.tracks,settings.rememberedAudioLanguage ?: settings.preferredAudioLanguage).forEach { t->val locale=Locale.forLanguageTag(t.locale);LanguageRow(locale.getDisplayLanguage(locale).ifBlank{t.displayName.ifBlank{unknownLanguage}},listOf(locale.getDisplayCountry(locale),stringResource(when(t.type){"DUBBED"->R.string.dubbed;"DESCRIPTIVE"->R.string.descriptive;"ORIGINAL"->R.string.original;else->R.string.audio})).filter{it.isNotBlank()}.joinToString(" · "),t.locale,state.trackId==t.id,{model.track(t.id)})}
                     }else{Row(verticalAlignment=Alignment.CenterVertically){Text(track?.displayName?.ifBlank{Locale.forLanguageTag(track.locale).displayLanguage}?.ifBlank{stringResource(R.string.original)}.orEmpty(),color=c.mid,modifier=Modifier.weight(1f));if(details.tracks.size>1 || track==null)SingularityButton(stringResource(R.string.select_audio),model::showTracks,variant="tertiary")}}
+                    if(details?.audioDiscoveryIncomplete==true){
+                        Text(stringResource(R.string.audio_discovery_incomplete),color=c.warning,style=SingularityTheme.type.caption)
+                        SingularityButton(stringResource(R.string.find_audio_languages),{model.input(state.url,true,refresh=true)},variant="secondary",enabled=!state.loading)
+                    }
                     if(details!=null && settings.rememberedAudioLanguage!=null && details.tracks.none{it.type!="DESCRIPTIVE" && it.locale.substringBefore('-').equals(settings.rememberedAudioLanguage.substringBefore('-'),true)})Text(stringResource(R.string.remembered_audio_missing),color=c.warning,style=SingularityTheme.type.caption)
                     if(state.audioOnly)Tag(selected?.label ?: stringResource(R.string.best_audio)) else {
                         SectionHeader(stringResource(R.string.quality))

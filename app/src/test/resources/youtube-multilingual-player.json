@@ -1,0 +1,320 @@
+{
+  "playabilityStatus": {
+    "status": "OK"
+  },
+  "videoDetails": {
+    "videoId": "kX3nB4PpJko"
+  },
+  "streamingData": {
+    "adaptiveFormats": [
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131317,
+        "audioTrack": {
+          "displayName": "Arabic",
+          "id": "ar.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICYXI",
+        "url": "https://example.test/audio/ar.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131222,
+        "audioTrack": {
+          "displayName": "Bangla",
+          "id": "bn.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICYm4",
+        "url": "https://example.test/audio/bn.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131398,
+        "audioTrack": {
+          "displayName": "German",
+          "id": "de.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICZGU",
+        "url": "https://example.test/audio/de.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131268,
+        "audioTrack": {
+          "displayName": "Spanish",
+          "id": "es.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICZXM",
+        "url": "https://example.test/audio/es.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131369,
+        "audioTrack": {
+          "displayName": "Persian",
+          "id": "fa.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICZmE",
+        "url": "https://example.test/audio/fa.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131307,
+        "audioTrack": {
+          "displayName": "French",
+          "id": "fr.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICZnI",
+        "url": "https://example.test/audio/fr.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131474,
+        "audioTrack": {
+          "displayName": "Hindi",
+          "id": "hi.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICaGk",
+        "url": "https://example.test/audio/hi.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131464,
+        "audioTrack": {
+          "displayName": "Indonesian",
+          "id": "id.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICaWQ",
+        "url": "https://example.test/audio/id.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131310,
+        "audioTrack": {
+          "displayName": "Italian",
+          "id": "it.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICaXQ",
+        "url": "https://example.test/audio/it.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131312,
+        "audioTrack": {
+          "displayName": "Japanese",
+          "id": "ja.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICamE",
+        "url": "https://example.test/audio/ja.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131556,
+        "audioTrack": {
+          "displayName": "Korean",
+          "id": "ko.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICa28",
+        "url": "https://example.test/audio/ko.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131252,
+        "audioTrack": {
+          "displayName": "Malayalam",
+          "id": "ml.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICbWw",
+        "url": "https://example.test/audio/ml.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131437,
+        "audioTrack": {
+          "displayName": "Marathi",
+          "id": "mr.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICbXI",
+        "url": "https://example.test/audio/mr.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131320,
+        "audioTrack": {
+          "displayName": "Punjabi",
+          "id": "pa.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICcGE",
+        "url": "https://example.test/audio/pa.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131373,
+        "audioTrack": {
+          "displayName": "Polish",
+          "id": "pl.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICcGw",
+        "url": "https://example.test/audio/pl.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131426,
+        "audioTrack": {
+          "displayName": "Portuguese",
+          "id": "pt.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICcHQ",
+        "url": "https://example.test/audio/pt.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131336,
+        "audioTrack": {
+          "displayName": "Russian",
+          "id": "ru.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICcnU",
+        "url": "https://example.test/audio/ru.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131222,
+        "audioTrack": {
+          "displayName": "Tamil",
+          "id": "ta.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICdGE",
+        "url": "https://example.test/audio/ta.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131306,
+        "audioTrack": {
+          "displayName": "Telugu",
+          "id": "te.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICdGU",
+        "url": "https://example.test/audio/te.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131440,
+        "audioTrack": {
+          "displayName": "Thai",
+          "id": "th.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICdGg",
+        "url": "https://example.test/audio/th.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131205,
+        "audioTrack": {
+          "displayName": "Turkish",
+          "id": "tr.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICdHI",
+        "url": "https://example.test/audio/tr.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131351,
+        "audioTrack": {
+          "displayName": "Uzbek",
+          "id": "uz.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICdXo",
+        "url": "https://example.test/audio/uz.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131300,
+        "audioTrack": {
+          "displayName": "Vietnamese",
+          "id": "vi.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICdmk",
+        "url": "https://example.test/audio/vi.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131293,
+        "audioTrack": {
+          "displayName": "Chinese",
+          "id": "zh.3",
+          "audioIsDefault": false
+        },
+        "xtags": "Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICemg",
+        "url": "https://example.test/audio/zh.3"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131240,
+        "audioTrack": {
+          "displayName": "English original",
+          "id": "en.4",
+          "audioIsDefault": true
+        },
+        "xtags": "ChEKBWFjb250EghvcmlnaW5hbAoKCgRsYW5nEgJlbg",
+        "url": "https://example.test/audio/en.4"
+      },
+      {
+        "itag": 137,
+        "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+        "height": 1080,
+        "fps": 30,
+        "bitrate": 4452600,
+        "url": "https://example.test/video/137"
+      }
+    ]
+  }
+}

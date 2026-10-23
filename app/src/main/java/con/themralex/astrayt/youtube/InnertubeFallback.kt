@@ -3,57 +3,53 @@ package con.themralex.astrayt.youtube
 import kotlinx.serialization.json.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager
 import java.io.IOException
 
 /** Bounded complementary clients for partial responses. Revisions verified against yt-dlp. */
-internal class InnertubeFallback(private val client:OkHttpClient) {
-    fun details(id:String,metadata:VideoDetails?,forceAll:Boolean=false,language:String=java.util.Locale.getDefault().language,discoverAudio:Boolean=false):VideoDetails {
+internal class InnertubeFallback(private val client:OkHttpClient,private val transport:((Request,Long)->JsonObject)?=null) {
+    private fun send(request:Request,deadline:Long):JsonObject {
+        val remaining=java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(deadline-System.nanoTime()).coerceAtLeast(1)
+        if(System.nanoTime()>=deadline)throw java.net.SocketTimeoutException("Player session timed out")
+        transport?.let{return it(request,remaining)}
+        return client.newCall(request).apply{timeout().timeout(remaining,java.util.concurrent.TimeUnit.MILLISECONDS)}.execute().use{
+            if(!it.isSuccessful)throw IOException("HTTP ${it.code}")
+            Json.parseToJsonElement(it.body.string()).jsonObject
+        }
+    }
+    fun details(id:String,metadata:VideoDetails?,forceAll:Boolean=false,language:String=java.util.Locale.getDefault().language,discoverAudio:Boolean=false,deadlineNanos:Long=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(24)):VideoDetails {
         var best=metadata
         var failure:Exception?=null
-        val profiles=if(discoverAudio)listOf("IOS","ANDROID_VR","WEB_EMBEDDED_PLAYER")else listOf("ANDROID_VR","WEB_EMBEDDED_PLAYER","IOS")
-        var audioChecked=false
+        // VR 1.65.10 stopped serving media; use valid anonymous sessions, not that retired profile.
+        val profiles=if(discoverAudio)listOf(InnertubeSession.vision,InnertubeSession.android,InnertubeSession.ios,InnertubeSession.web)else listOf(InnertubeSession.android,InnertubeSession.vision,InnertubeSession.ios,InnertubeSession.web)
+        val overallDeadline=minOf(deadlineNanos,System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(24))
         for(profile in profiles){
+            if(System.nanoTime()>=overallDeadline)break
             if(Thread.currentThread().isInterrupted)throw InterruptedException()
             try {
-                val embedded=profile=="WEB_EMBEDDED_PLAYER"
-                val version=when(profile){"ANDROID_VR"->"1.65.10";"IOS"->"21.26.4";else->"2.20260708.00.00"}
-                val clientId=when(profile){"ANDROID_VR"->"28";"IOS"->"5";else->"56"}
-                val userAgent=when(profile){"ANDROID_VR"->USER_AGENT;"IOS"->"com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)";else->"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15"}
-                val timestamp=if(embedded)try{YoutubeJavaScriptPlayerManager.getSignatureTimestamp(id)}catch(e:InterruptedException){throw e}catch(_:Exception){null}else null
-                val body=buildJsonObject {
-                    put("context",buildJsonObject {
-                        put("client",buildJsonObject {
-                            put("clientName",profile);put("clientVersion",version);put("hl",java.util.Locale.forLanguageTag(language).language);put("userAgent",userAgent)
-                            if(profile=="ANDROID_VR"){put("deviceMake","Oculus");put("deviceModel","Quest 3");put("androidSdkVersion",32);put("osName","Android");put("osVersion","12L")}
-                            if(profile=="IOS"){put("deviceMake","Apple");put("deviceModel","iPhone16,2");put("osName","iPhone");put("osVersion","18.3.2.22D82")}
-                        })
-                        if(embedded)put("thirdParty",buildJsonObject{put("embedUrl","https://www.youtube.com/embed/$id")})
-                    })
-                    put("videoId",id);put("contentCheckOk",true);put("racyCheckOk",true)
-                    if(embedded)put("playbackContext",buildJsonObject{put("contentPlaybackContext",buildJsonObject{put("html5Preference","HTML5_PREF_WANTS");timestamp?.let{put("signatureTimestamp",it)}})})
+                val deadline=minOf(overallDeadline,System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(8))
+                val boot=send(profile.visitorRequest(language),deadline)
+                val visitor=boot.obj("responseContext").text("visitorData").takeIf{it.isNotBlank()} ?: throw IOException("Missing visitor session")
+                val cpn=org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.generateContentPlaybackNonce()
+                val t=org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.generateTParameter()
+                val timestamp=if(profile==InnertubeSession.web)try{YoutubeJavaScriptPlayerManager.getSignatureTimestamp(id)}catch(e:InterruptedException){throw e}catch(_:Exception){null}else null
+                val response=send(profile.playerRequest(id,language,visitor,cpn,t,timestamp),deadline)
+                val result=parse(id,response,best,profile.mediaHeaders,signature={YoutubeJavaScriptPlayerManager.deobfuscateSignature(id,it)}){url->
+                    val decoded=YoutubeJavaScriptPlayerManager.getUrlWithThrottlingParameterDeobfuscated(id,url)
+                    decoded.toHttpUrl().newBuilder().setQueryParameter("cpn",cpn).build().toString()
                 }
-                val headers=mapOf("User-Agent" to userAgent,"Referer" to "https://www.youtube.com/","Origin" to "https://www.youtube.com")
-                val request=Request.Builder().url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false").apply{headers.forEach{(key,value)->header(key,value)}}
-                    .header("X-YouTube-Client-Name",clientId).header("X-YouTube-Client-Version",version)
-                    .post(body.toString().toRequestBody("application/json".toMediaType())).build()
-                val call=client.newCall(request).apply{timeout().timeout(8,java.util.concurrent.TimeUnit.SECONDS)}
-                val response=call.execute().use{if(!it.isSuccessful)throw IOException("HTTP ${it.code}");Json.parseToJsonElement(it.body.string()).jsonObject}
-                val result=parse(id,response,best,headers,signature={YoutubeJavaScriptPlayerManager.deobfuscateSignature(id,it)}){YoutubeJavaScriptPlayerManager.getUrlWithThrottlingParameterDeobfuscated(id,it)}
                 best=best?.let{StreamRecovery.merge(it,result)} ?: result
-                // IOS enumerates multilingual audio even when another client only returned the default.
-                if(profile=="IOS" && result.tracks.isNotEmpty())audioChecked=true
                 val preferredFound=best.tracks.any{it.type!="DESCRIPTIVE" && it.locale.substringBefore('-').equals(language.substringBefore('-'),true)}
-                if(!forceAll && !StreamRecovery.needsAlternate(best) && (!discoverAudio || (audioChecked && preferredFound)))return best
+                if(!forceAll && !StreamRecovery.needsAlternate(best) && (!discoverAudio || (result.tracks.size>1 && preferredFound)))return best
             }catch(e:InterruptedException){throw e}catch(e:java.util.concurrent.CancellationException){throw e}catch(e:Exception){if(e.message?.contains("429")==true)throw e;failure=e}
         }
         return best?.takeIf{it.videos.isNotEmpty() || it.tracks.isNotEmpty()} ?: throw (failure ?: NoStreams())
     }
     companion object {
-        private const val USER_AGENT="com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
-        internal fun parse(id:String,response:JsonObject,metadata:VideoDetails?,headers:Map<String,String> = mapOf("User-Agent" to USER_AGENT),signature:(String)->String={throw NoStreams()},decode:(String)->String):VideoDetails {
+        private val USER_AGENT=InnertubeSession.vision.userAgent
+        internal fun parse(id:String,envelope:JsonObject,metadata:VideoDetails?,headers:Map<String,String> = mapOf("User-Agent" to USER_AGENT),signature:(String)->String={throw NoStreams()},decode:(String)->String):VideoDetails {
+            val response=(envelope["playerResponse"] as? JsonObject) ?: envelope
             val status=response.obj("playabilityStatus").text("status")
             if(status!="OK")throw IOException("YouTube: $status")
             val v=response.obj("videoDetails")

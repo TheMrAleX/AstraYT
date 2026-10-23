@@ -25,7 +25,7 @@ abstract class ScreenModel:ViewModel() {
     protected val handler=CoroutineExceptionHandler{_,error->effects.trySend(Errors.string(Errors.code(error)))}
     fun work(block:suspend CoroutineScope.()->Unit)=viewModelScope.launch(handler,block=block)
 }
-@Immutable data class CaptureState(val url:String="",val loading:Boolean=false,val result:VideoDetails?=null,val playlist:ResolvedLink.Playlist?=null,val selected:Set<String> = emptySet(),val error:String?=null,val audioOnly:Boolean=false,val trackId:String?=null,val height:Int=1080,val prompt:Boolean=false,val remember:Boolean=false,val busy:Boolean=false,val loadingMore:Boolean=false,val modalOpen:Boolean=false)
+@Immutable data class CaptureState(val url:String="",val loading:Boolean=false,val result:VideoDetails?=null,val playlist:ResolvedLink.Playlist?=null,val selected:Set<String> = emptySet(),val error:String?=null,val audioOnly:Boolean=false,val trackId:String?=null,val height:Int=1080,val prompt:Boolean=false,val remember:Boolean=false,val busy:Boolean=false,val loadingMore:Boolean=false,val modalOpen:Boolean=false,val trackExplicit:Boolean=false)
 @HiltViewModel class CaptureModel @Inject constructor(private val saved:SavedStateHandle,private val backend:YoutubeBackend,private val prefs:Preferences,private val dao:AstraDao,private val downloads:DownloadManager):ScreenModel() {
     private val _state=MutableStateFlow(CaptureState(url=saved["url"] ?: ""))
     val state=_state.asStateFlow()
@@ -39,16 +39,17 @@ abstract class ScreenModel:ViewModel() {
             try {val link=UrlParser.parse(url);when(val resolved=if(refresh && link is YoutubeLink.Video)ResolvedLink.Video(backend.refreshStreams(link.id))else backend.resolve(url)) {
                 is ResolvedLink.Video->{val p=prefs.flow.first();val remembered=p.rememberedAudioLanguage ?: dao.channelLanguage(resolved.details.channelId);val selected=AudioTrackSelector.select(resolved.details.tracks,p.preferredAudioLanguage,remembered,p.autoPickDubbed,p.askWhenAlternatives)
                     val oldTrack=previous?.result?.tracks?.firstOrNull{it.id==previous.trackId}
-                    val restored=oldTrack?.let{AudioTrackSelector.restore(resolved.details.tracks,it.id,it.locale,it.type)}
-                    val unavailable=oldTrack!=null && restored==null
-                    _state.value=_state.value.copy(loading=false,result=resolved.details,trackId=if(unavailable)null else restored?.id ?: selected.track?.id,prompt=unavailable || (previous?.prompt ?: selected.prompt),remember=!unavailable && (previous?.remember ?: false),error=if(unavailable)"AUDIO_UNAVAILABLE"else null)}
+                    val refreshed=AudioTrackSelector.afterRefresh(resolved.details.tracks,selected,oldTrack,previous?.trackExplicit==true,previous?.prompt==true)
+                    val unavailable=previous?.trackExplicit==true && oldTrack!=null && refreshed.track==null
+                    val sameChoice=refreshed.track?.id==previous?.trackId
+                    _state.value=_state.value.copy(loading=false,result=resolved.details,trackId=refreshed.track?.id,prompt=refreshed.prompt,trackExplicit=previous?.trackExplicit==true && !unavailable,remember=sameChoice && (previous?.remember ?: false),error=if(unavailable)"AUDIO_UNAVAILABLE"else null)}
                 is ResolvedLink.Playlist->_state.value=_state.value.copy(loading=false,playlist=resolved,selected=resolved.entries.map{it.ytId}.toSet())
             }}catch(e:TimeoutCancellationException){_state.value=_state.value.copy(loading=false,error="TIMEOUT")}catch(e:CancellationException){throw e}catch(e:Exception){_state.value=_state.value.copy(loading=false,error=Errors.code(e))}
         }
     }
     fun dismissCapture(){if(!_state.value.busy){fetch?.cancel();_state.value=_state.value.copy(modalOpen=false,loading=false)}}
     fun openCapture(){if(_state.value.url.isNotBlank() && _state.value.result==null && _state.value.playlist==null)input(_state.value.url,true)else _state.value=_state.value.copy(modalOpen=true)}
-    fun track(id:String){_state.value=_state.value.copy(trackId=id,error=null)}
+    fun track(id:String){_state.value=_state.value.copy(trackId=id,trackExplicit=true,error=null)}
     fun kind(audio:Boolean){_state.value=_state.value.copy(audioOnly=audio)}
     fun height(height:Int){_state.value=_state.value.copy(height=height)}
     fun remember(value:Boolean){_state.value=_state.value.copy(remember=value)}

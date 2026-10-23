@@ -220,4 +220,6 @@
     <string name="selected_audio">Audio: %1$s</string>
     <string name="error_audio_unavailable">La pista de audio elegida ya no está disponible. Vuelve a analizar el enlace y elige el idioma.</string>
     <string name="remembered_audio_missing">El idioma recordado no está disponible en este vídeo. Revisa el audio seleccionado antes de descargar.</string>
+    <string name="audio_discovery_incomplete">No se han podido comprobar todos los idiomas. El audio mostrado puede ser solo una parte de los disponibles.</string>
+    <string name="find_audio_languages">Buscar idiomas de audio</string>
 </resources>

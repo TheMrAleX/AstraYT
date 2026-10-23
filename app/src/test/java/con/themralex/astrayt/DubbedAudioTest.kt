@@ -66,6 +66,21 @@ class DubbedAudioTest {
         assertNull(AudioTrackSelector.restore(listOf(english.copy(id=spanish.id)),saved.trackId,saved.audioLanguage,saved.audioType))
         assertNull(AudioTrackSelector.restore(listOf(english),saved.trackId,saved.audioLanguage,saved.audioType))
     }
+    @Test fun newlyRecoveredSpanishReplacesAnAutomaticEnglishDefaultAndOpensThePicker() {
+        val available=listOf(english,spanish)
+        val automatic=AudioTrackSelector.select(available,"es")
+        val refreshed=AudioTrackSelector.afterRefresh(available,automatic,english,explicit=false,wasPrompt=false)
+        assertEquals(spanish,refreshed.track);assertTrue(refreshed.prompt)
+    }
+    @Test fun anExplicitEnglishChoiceIsKeptWhenMoreLanguagesAreDiscovered() {
+        val available=listOf(english,spanish)
+        val refreshed=AudioTrackSelector.afterRefresh(available,AudioTrackSelector.select(available,"es"),english,explicit=true)
+        assertEquals(english,refreshed.track)
+    }
+    @Test fun missingExplicitSpanishRequiresAnotherChoiceInsteadOfEnglish() {
+        val refreshed=AudioTrackSelector.afterRefresh(listOf(english),AudioTrackSelector.select(listOf(english),"es"),spanish,explicit=true)
+        assertNull(refreshed.track);assertTrue(refreshed.prompt)
+    }
     @Test fun regionalVariantsAreNeverInterchangedDuringResume() {
         assertNull(AudioTrackSelector.restore(listOf(spanish.copy(locale="es-ES",id="other")),spanish.id,"es-419","DUBBED"))
     }

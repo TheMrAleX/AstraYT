@@ -15,6 +15,11 @@ object AudioTrackSelector {
         if(batch)return Selection(original,false)
         return Selection(pref ?: original,ask)
     }
+    fun afterRefresh(tracks:List<AudioTrackOption>,selection:Selection,previous:AudioTrackOption?,explicit:Boolean,wasPrompt:Boolean=false):Selection {
+        if(!explicit || previous==null)return selection.copy(prompt=wasPrompt || selection.prompt)
+        val restored=restore(tracks,previous.id,previous.locale,previous.type)
+        return Selection(restored,wasPrompt || restored==null)
+    }
     /** Exact semantic identity only: never resume bytes from a different language or audio type. */
     fun restore(tracks:List<AudioTrackOption>,id:String,locale:String?,type:String?):AudioTrackOption? {
         fun matches(t:AudioTrackOption)=(locale.isNullOrBlank() || t.locale.equals(locale,true)) && (type==null || type=="UNKNOWN" || t.type==type)

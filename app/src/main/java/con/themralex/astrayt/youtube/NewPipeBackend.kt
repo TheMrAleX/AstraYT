@@ -36,7 +36,7 @@ import javax.inject.*
         val settings=preferences.flow.first()
         val language=settings.rememberedAudioLanguage ?: settings.preferredAudioLanguage
         val cacheKey="$videoId:$language"
-        mutex.withLock { cache[cacheKey]?.takeUnless{forceAlternate}?.takeIf{System.currentTimeMillis()-it.fetchedAt<600000}?.let{return it} }
+        mutex.withLock { cache[cacheKey]?.takeUnless{forceAlternate}?.takeIf{System.currentTimeMillis()-it.fetchedAt<(if(it.audioDiscoveryIncomplete)30000 else 600000)}?.let{return it} }
         return flights.get(if(forceAlternate)"$cacheKey:full"else cacheKey) {
             // NewPipe uses process-wide mutable player caches. Never extract/clear them concurrently.
             extractorMutex.withLock {
@@ -44,12 +44,13 @@ import javax.inject.*
                 for(attempt in 0..1) {
                     try {
                         result=extractionAttempt { runInterruptible {
+                            val deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(42)
                             val primary=try { extract(videoId) } catch(e:Exception) {
                                 if(Errors.code(e) !in setOf("NO_STREAMS","EXTRACTOR"))throw e
-                                return@runInterruptible InnertubeFallback(client).details(videoId,(e as? NoStreams)?.metadata,language=language,discoverAudio=true)
+                                return@runInterruptible InnertubeFallback(client).details(videoId,(e as? NoStreams)?.metadata,language=language,discoverAudio=true,deadlineNanos=deadline)
                             }
                             if(forceAlternate || StreamRecovery.needsAlternate(primary) || StreamRecovery.needsAudioDiscovery(primary,language))try {
-                                StreamRecovery.merge(primary,InnertubeFallback(client).details(videoId,primary,forceAlternate,language,discoverAudio=StreamRecovery.needsAudioDiscovery(primary,language)))
+                                StreamRecovery.merge(primary,InnertubeFallback(client).details(videoId,primary,forceAlternate,language,discoverAudio=StreamRecovery.needsAudioDiscovery(primary,language),deadlineNanos=deadline))
                             }catch(e:InterruptedException){throw e}catch(e:CancellationException){throw e}catch(_:Exception){primary}
                             else primary
                         } }
@@ -61,7 +62,8 @@ import javax.inject.*
                         delay(750)
                     }
                 }
-                val details=checkNotNull(result)
+                val extracted=checkNotNull(result)
+                val details=extracted.copy(audioDiscoveryIncomplete=StreamRecovery.needsAudioDiscovery(extracted,language))
                 if(!StreamRecovery.needsAlternate(details))mutex.withLock {cache[cacheKey]=details}
                 details
             }
