@@ -23,7 +23,8 @@ import javax.inject.*
     private val extractorMutex=Mutex()
     @Volatile private var initialized=false
     private suspend fun init() {
-        val language=preferences.flow.first().preferredAudioLanguage
+        val settings=preferences.flow.first()
+        val language=settings.rememberedAudioLanguage ?: settings.preferredAudioLanguage
         mutex.withLock {
             if(!initialized){PlayerJavaScript.install(context);NewPipe.init(OkHttpDownloader(client),Localization(language));initialized=true}
             NewPipe.setPreferredLocalization(Localization(language))
@@ -32,8 +33,11 @@ import javax.inject.*
     override suspend fun details(videoId:String):VideoDetails=load(videoId,false)
     private suspend fun load(videoId:String,forceAlternate:Boolean):VideoDetails {
         init()
-        mutex.withLock { cache[videoId]?.takeUnless{forceAlternate}?.takeIf{System.currentTimeMillis()-it.fetchedAt<600000}?.let{return it} }
-        return flights.get(if(forceAlternate)"$videoId:full"else videoId) {
+        val settings=preferences.flow.first()
+        val language=settings.rememberedAudioLanguage ?: settings.preferredAudioLanguage
+        val cacheKey="$videoId:$language"
+        mutex.withLock { cache[cacheKey]?.takeUnless{forceAlternate}?.takeIf{System.currentTimeMillis()-it.fetchedAt<600000}?.let{return it} }
+        return flights.get(if(forceAlternate)"$cacheKey:full"else cacheKey) {
             // NewPipe uses process-wide mutable player caches. Never extract/clear them concurrently.
             extractorMutex.withLock {
                 var result:VideoDetails?=null
@@ -42,10 +46,10 @@ import javax.inject.*
                         result=extractionAttempt { runInterruptible {
                             val primary=try { extract(videoId) } catch(e:Exception) {
                                 if(Errors.code(e) !in setOf("NO_STREAMS","EXTRACTOR"))throw e
-                                return@runInterruptible InnertubeFallback(client).details(videoId,(e as? NoStreams)?.metadata)
+                                return@runInterruptible InnertubeFallback(client).details(videoId,(e as? NoStreams)?.metadata,language=language,discoverAudio=true)
                             }
-                            if(forceAlternate || StreamRecovery.needsAlternate(primary))try {
-                                StreamRecovery.merge(primary,InnertubeFallback(client).details(videoId,primary,forceAlternate))
+                            if(forceAlternate || StreamRecovery.needsAlternate(primary) || StreamRecovery.needsAudioDiscovery(primary,language))try {
+                                StreamRecovery.merge(primary,InnertubeFallback(client).details(videoId,primary,forceAlternate,language,discoverAudio=StreamRecovery.needsAudioDiscovery(primary,language)))
                             }catch(e:InterruptedException){throw e}catch(e:CancellationException){throw e}catch(_:Exception){primary}
                             else primary
                         } }
@@ -58,12 +62,12 @@ import javax.inject.*
                     }
                 }
                 val details=checkNotNull(result)
-                if(!StreamRecovery.needsAlternate(details))mutex.withLock {cache[videoId]=details}
+                if(!StreamRecovery.needsAlternate(details))mutex.withLock {cache[cacheKey]=details}
                 details
             }
         }
     }
-    override suspend fun refreshStreams(videoId:String):VideoDetails {mutex.withLock{cache.remove(videoId)};return load(videoId,true)}
+    override suspend fun refreshStreams(videoId:String):VideoDetails {return load(videoId,true)}
     override suspend fun resolve(url:String):ResolvedLink {
         return when(val link=UrlParser.parse(url)) {
             is YoutubeLink.Video->ResolvedLink.Video(details(link.id))
@@ -93,7 +97,7 @@ import javax.inject.*
         val info=StreamInfo.getInfo(NewPipe.getService(0),UrlParser.canonical(id))
         if(info.streamType==StreamType.LIVE_STREAM || info.streamType==StreamType.AUDIO_LIVE_STREAM)throw IllegalStateException("LIVE_STREAM")
         fun video(s:VideoStream)=ExtractorStreams.video(s)
-        val tracks=info.audioStreams.filter{it.isUrl && it.deliveryMethod==DeliveryMethod.PROGRESSIVE_HTTP}.groupBy{it.audioTrackId ?: "original"}.map{(key,streams)->val first=streams.first();AudioTrackOption(key,first.audioLocale?.toLanguageTag().orEmpty(),first.audioTrackType?.name ?: "ORIGINAL",first.audioTrackName.orEmpty(),streams.map{s->MediaStream(s.id,s.content,s.format?.suffix.orEmpty(),s.codec.orEmpty(),if(s.bitrate>0)s.bitrate else s.averageBitrate*1000)},first.audioTrackType==AudioTrackType.ORIGINAL)}
+        val tracks=info.audioStreams.filter{it.isUrl && it.deliveryMethod==DeliveryMethod.PROGRESSIVE_HTTP}.groupBy{it.audioTrackId ?: "original"}.map{(key,streams)->val first=streams.first();AudioTrackOption(key,first.audioLocale?.toLanguageTag().orEmpty(),first.audioTrackType?.name ?: if(key=="original")"ORIGINAL"else"UNKNOWN",first.audioTrackName.orEmpty(),streams.map{s->MediaStream(s.id,s.content,s.format?.suffix.orEmpty(),s.codec.orEmpty(),if(s.bitrate>0)s.bitrate else s.averageBitrate*1000)},first.audioTrackType==AudioTrackType.ORIGINAL)}
         val details=VideoDetails(id,info.name,info.uploaderUrl,info.uploaderName,info.uploaderAvatars.maxByOrNull{it.height}?.url.orEmpty(),info.thumbnails.maxByOrNull{it.height}?.url.orEmpty(),info.duration*1000,info.viewCount,info.uploadDate?.instant?.toEpochMilli() ?: 0,info.description.content.take(2000),(info.videoOnlyStreams+info.videoStreams).filter{it.isUrl && it.deliveryMethod==DeliveryMethod.PROGRESSIVE_HTTP}.map(::video),tracks,likeCount=info.likeCount)
         if(details.videos.isEmpty() && details.tracks.isEmpty())throw NoStreams(info.errors.firstOrNull(),details)
         return details

@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.*
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.lazy.*
@@ -98,6 +99,17 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                 GlassCard {
                     Text(stringResource(R.string.options),color=c.text,style=SingularityTheme.type.title)
                     SegmentedToggle(listOf(stringResource(R.string.video),stringResource(R.string.audio)),if(state.audioOnly)1 else 0,{model.kind(it==1)})
+                    SectionHeader(stringResource(R.string.audio))
+                    if(state.audioOnly && selected?.extractAudio==true)Text(stringResource(R.string.embedded_audio),color=c.mid,style=SingularityTheme.type.body)
+                    else if(details==null || details.tracks.isEmpty())Text(stringResource(R.string.resolve_in_queue),color=c.mid,style=SingularityTheme.type.body)
+                    else if(state.prompt){Text(stringResource(R.string.audio_tracks),color=c.text,style=SingularityTheme.type.small);Text(stringResource(R.string.choose_audio),color=c.mid,style=SingularityTheme.type.body)
+                        if(track?.locale?.isNotBlank()==true)Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).toggleable(value=state.remember,role=Role.Checkbox,onValueChange=model::remember).padding(vertical=12.dp,horizontal=8.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                            Icon(if(state.remember)Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank,null,tint=if(state.remember)c.accent else c.mid,modifier=Modifier.size(24.dp))
+                            Column(Modifier.weight(1f)){Text(stringResource(R.string.remember_audio),color=c.text,style=SingularityTheme.type.label);Text(stringResource(R.string.remember_audio_body),color=c.mid,style=SingularityTheme.type.caption)}
+                        }
+                        AudioTrackSelector.sorted(details.tracks,settings.rememberedAudioLanguage ?: settings.preferredAudioLanguage).forEach { t->val locale=Locale.forLanguageTag(t.locale);LanguageRow(locale.getDisplayLanguage(locale).ifBlank{t.displayName.ifBlank{unknownLanguage}},listOf(locale.getDisplayCountry(locale),stringResource(when(t.type){"DUBBED"->R.string.dubbed;"DESCRIPTIVE"->R.string.descriptive;"ORIGINAL"->R.string.original;else->R.string.audio})).filter{it.isNotBlank()}.joinToString(" · "),t.locale,state.trackId==t.id,{model.track(t.id)})}
+                    }else{Row(verticalAlignment=Alignment.CenterVertically){Text(track?.displayName?.ifBlank{Locale.forLanguageTag(track.locale).displayLanguage}?.ifBlank{stringResource(R.string.original)}.orEmpty(),color=c.mid,modifier=Modifier.weight(1f));if(details.tracks.size>1 || track==null)SingularityButton(stringResource(R.string.select_audio),model::showTracks,variant="tertiary")}}
+                    if(details!=null && settings.rememberedAudioLanguage!=null && details.tracks.none{it.type!="DESCRIPTIVE" && it.locale.substringBefore('-').equals(settings.rememberedAudioLanguage.substringBefore('-'),true)})Text(stringResource(R.string.remembered_audio_missing),color=c.warning,style=SingularityTheme.type.caption)
                     if(state.audioOnly)Tag(selected?.label ?: stringResource(R.string.best_audio)) else {
                         SectionHeader(stringResource(R.string.quality))
                         QualityGrid(selected?.height ?: state.height,model::height,if(details!=null)choices.map{it.height} else StreamPlanner.commonHeights)
@@ -108,13 +120,7 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                         }
                     }
                     if(details!=null && choices.isEmpty())Text(stringResource(R.string.formats_unavailable),color=c.warning,style=SingularityTheme.type.caption)
-                    SectionHeader(stringResource(R.string.audio))
-                    if(state.audioOnly && selected?.extractAudio==true)Text(stringResource(R.string.embedded_audio),color=c.mid,style=SingularityTheme.type.body)
-                    else if(details==null || details.tracks.isEmpty())Text(stringResource(R.string.resolve_in_queue),color=c.mid,style=SingularityTheme.type.body)
-                    else if(state.prompt){Text(stringResource(R.string.audio_tracks),color=c.text,style=SingularityTheme.type.small);Text(stringResource(R.string.choose_audio),color=c.mid,style=SingularityTheme.type.body)
-                        AudioTrackSelector.sorted(details.tracks,settings.preferredAudioLanguage).forEach { t->val locale=Locale.forLanguageTag(t.locale);LanguageRow(locale.getDisplayLanguage(locale).ifBlank{t.displayName.ifBlank{unknownLanguage}},locale.getDisplayCountry(locale)+" · "+stringResource(when(t.type){"DUBBED"->R.string.dubbed;"DESCRIPTIVE"->R.string.descriptive;else->R.string.original}),t.locale,state.trackId==t.id,{model.track(t.id)})}
-                        SettingsRow(Icons.Rounded.Bookmark,stringResource(R.string.remember_channel),trailing={SingularitySwitch(state.remember,model::remember,stringResource(R.string.remember_channel))})
-                    }else{Row(verticalAlignment=Alignment.CenterVertically){Text(track?.displayName?.ifBlank{Locale.forLanguageTag(track.locale).displayLanguage}?.ifBlank{stringResource(R.string.original)}.orEmpty(),color=c.mid,modifier=Modifier.weight(1f));if(details.tracks.size>1)SingularityButton(stringResource(R.string.select_audio),model::showTracks,variant="tertiary")}}
+
                 }
             }
             state.playlist?.let { list->
@@ -140,7 +146,8 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                 Text(if(state.audioOnly)stringResource(R.string.audio)else if(state.height==Int.MAX_VALUE && selected==null)stringResource(R.string.max)else StreamPlanner.qualityLabel(selected?.height ?: state.height),color=c.text,style=SingularityTheme.type.label)
                 Text(selected?.estimatedBytes?.takeIf{it>0}?.let{Formatters.bytes(it)} ?: stringResource(R.string.unknown_size),color=c.mid,style=SingularityTheme.type.caption)
             }
-            SingularityButton(if(state.playlist!=null)pluralStringResource(R.plurals.playlist_download,state.selected.size,state.selected.size)else stringResource(R.string.add_to_queue),{enqueue()},Modifier.fillMaxWidth(),enabled=!state.busy && (details==null || selected!=null) && (state.playlist==null || state.selected.isNotEmpty()),loading=state.busy)
+            if(track!=null)Text(stringResource(R.string.selected_audio,Locale.forLanguageTag(track.locale).displayName.ifBlank{track.displayName.ifBlank{unknownLanguage}}),color=c.mid,style=SingularityTheme.type.caption,maxLines=1,overflow=TextOverflow.Ellipsis)
+            SingularityButton(if(state.playlist!=null)pluralStringResource(R.plurals.playlist_download,state.selected.size,state.selected.size)else stringResource(R.string.add_to_queue),{enqueue()},Modifier.fillMaxWidth(),enabled=!state.busy && !state.loading && ((details!=null && selected!=null && (details.tracks.isEmpty() || track!=null)) || state.playlist!=null) && (state.playlist==null || state.selected.isNotEmpty()),loading=state.busy)
         }
     }
 }
@@ -159,7 +166,7 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
             if(rows.isNotEmpty()){
                 val active=rows.count{it.state in setOf("FETCHING","DOWNLOADING","MUXING")}
                 Row(Modifier.fillMaxWidth().heightIn(min=40.dp),verticalAlignment=Alignment.CenterVertically){
-                    Text(pluralStringResource(R.plurals.queue_activity,active,active,Formatters.bytes(progress.values.sumOf{it.speed})),color=c.accent,style=SingularityTheme.type.label.copy(fontFeatureSettings="tnum"))
+                    Text(pluralStringResource(R.plurals.queue_activity,active,active,Formatters.bytes(progress.values.sumOf{it.speed})),color=c.accent,style=SingularityTheme.type.label.copy(fontFeatureSettings="tnum"),maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){SingularityButton(stringResource(R.string.pause_all),{model.pauseAll()},variant="secondary");SingularityButton(stringResource(R.string.resume_all),{model.resumeAll()},variant="secondary");SingularityButton(stringResource(R.string.clear_done),{model.clear()},variant="tertiary")}
             }
@@ -183,9 +190,11 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                             Text(if(options?.audioOnly==true)stringResource(R.string.audio)else if(options?.height==Int.MAX_VALUE)stringResource(R.string.max)else "${options?.height ?: 1080}p",color=Color.White,style=SingularityTheme.type.caption,modifier=Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color.Black.copy(alpha=.8f),RoundedCornerShape(4.dp)).padding(horizontal=4.dp,vertical=2.dp))
                         }
                         Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(5.dp)) {
-                            Text(row.title,color=c.text,style=SingularityTheme.type.strong,maxLines=2,overflow=TextOverflow.Ellipsis)
-                            if(row.channelName.isNotBlank())Text(row.channelName,color=c.low,style=SingularityTheme.type.caption,maxLines=1,overflow=TextOverflow.Ellipsis)
-                            if(options!=null && options.planPinned && !options.audioOnly && options.requestedHeight!=null && options.requestedHeight!=Int.MAX_VALUE && options.height<options.requestedHeight)Text(stringResource(R.string.quality_available,options.height),color=c.warning,style=SingularityTheme.type.caption)
+                            Text(row.title,color=c.text,style=SingularityTheme.type.strong,minLines=2,maxLines=2,overflow=TextOverflow.Ellipsis)
+                            Text(row.channelName.ifBlank{"—"},color=c.low,style=SingularityTheme.type.caption,maxLines=1,overflow=TextOverflow.Ellipsis)
+                            val limited=options!=null && options.planPinned && !options.audioOnly && options.requestedHeight!=null && options.requestedHeight!=Int.MAX_VALUE && options.height<options.requestedHeight
+                            val language=options?.audioLanguage?.let{Locale.forLanguageTag(it).displayName} ?: options?.details?.tracks?.firstOrNull{it.id==options.trackId}?.let{Locale.forLanguageTag(it.locale).displayName}
+                            Text(listOfNotNull(language?.takeIf{it.isNotBlank()},if(limited)stringResource(R.string.quality_available,options.height)else null).joinToString(" · ").ifBlank{"—"},color=if(limited)c.warning else c.mid,style=SingularityTheme.type.caption,maxLines=1,overflow=TextOverflow.Ellipsis)
                         }
                         SingularityIcon(Icons.Rounded.MoreVert,stringResource(R.string.options),{menu=row})
                     }
@@ -193,18 +202,24 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                         Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment=Alignment.CenterVertically) {
                                 Box(Modifier.size(6.dp).background(statusColor,CircleShape));Spacer(Modifier.width(6.dp))
-                                Text(stringResource(stateResource(row.state)),color=statusColor,style=SingularityTheme.type.label,modifier=Modifier.weight(1f))
+                                Text(stringResource(stateResource(row.state)),color=statusColor,style=SingularityTheme.type.label,modifier=Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis)
                                 if(row.state in setOf("DOWNLOADING","PAUSED"))Text("${(fraction*100).toInt()} %",color=c.text,style=SingularityTheme.type.label.copy(fontFeatureSettings="tnum"))
                             }
                             if(row.state in setOf("FETCHING","MUXING","WAITING_NETWORK"))QueueActivityLine()else AccretionProgressBar(if(row.state=="DONE")1f else fraction,height=3.dp)
                             val done=p?.done ?: row.bytesDone;val total=p?.total ?: row.bytesTotal
-                            if(row.state=="FAILED")Text(stringResource(Errors.string(row.errorCode)),color=c.error,style=SingularityTheme.type.caption)
-                            else if(total>0)Text("${Formatters.bytes(done)} / ${Formatters.bytes(total)}"+(if(row.state=="DOWNLOADING" && (p?.speed ?: 0)>0)" · ${Formatters.bytes(p!!.speed)}/s · ${Formatters.duration(p.eta.coerceAtLeast(0)*1000)}"else ""),color=c.low,style=SingularityTheme.type.caption.copy(fontFeatureSettings="tnum"))
+                            Box(Modifier.fillMaxWidth().heightIn(min=48.dp).then(if(row.id in pending)Modifier.clickable(role=Role.Button){model.undoCancel(row.id)}else Modifier),contentAlignment=Alignment.CenterStart) {
+                                if(row.id in pending)Text(stringResource(R.string.cancel_pending)+"\n"+stringResource(R.string.undo),color=c.accent,style=SingularityTheme.type.caption,minLines=2,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                else if(row.state=="FAILED")Text(stringResource(Errors.string(row.errorCode)),color=c.error,style=SingularityTheme.type.caption,minLines=2,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                else Column {
+                                    Text(if(total>0)"${Formatters.bytes(done)} / ${Formatters.bytes(total)}"else Formatters.bytes(done),color=c.low,style=SingularityTheme.type.caption.copy(fontFeatureSettings="tnum"),maxLines=1,overflow=TextOverflow.Ellipsis)
+                                    Text(if(row.state=="DOWNLOADING" && (p?.speed ?: 0)>0)"${Formatters.bytes(p!!.speed)}/s · ${Formatters.duration(p.eta.coerceAtLeast(0)*1000)}"else "—",color=c.mid,style=SingularityTheme.type.caption.copy(fontFeatureSettings="tnum"),maxLines=1,overflow=TextOverflow.Ellipsis)
+                                }
+                            }
                         }
                         if(row.state !in setOf("DONE","CANCELED"))SingularityIcon(if(resume)Icons.Rounded.PlayArrow else Icons.Rounded.Pause,stringResource(if(row.state=="FAILED")R.string.retry else if(resume)R.string.resume else R.string.pause),{if(resume)model.resume(row.id)else model.pause(row.id)},Modifier.background(c.high,CircleShape))
                         else if(row.state=="DONE")SingularityIcon(Icons.Rounded.PlayCircle,stringResource(R.string.play),{onPlayDownload(row.id)})else Icon(Icons.Rounded.Cancel,null,tint=statusColor,modifier=Modifier.padding(12.dp).size(24.dp))
                     }
-                    if(row.id in pending)Toast(stringResource(R.string.cancel_pending),action=stringResource(R.string.undo),onAction={model.undoCancel(row.id)})
+
                 }}
             }}
         }
@@ -302,6 +317,7 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
             SettingsRow(Icons.Rounded.Language,stringResource(R.string.preferred_language),value=Locale.forLanguageTag(settings.preferredAudioLanguage).displayLanguage,onClick={sheet="language"})
             SettingsRow(Icons.Rounded.QuestionAnswer,stringResource(R.string.ask_alternatives),trailing={SingularitySwitch(settings.askWhenAlternatives,{v->model.change{it.copy(askWhenAlternatives=v)}},stringResource(R.string.ask_alternatives))})
             SettingsRow(Icons.Rounded.Translate,stringResource(R.string.auto_dub),trailing={SingularitySwitch(settings.autoPickDubbed,{v->model.change{it.copy(autoPickDubbed=v)}},stringResource(R.string.auto_dub))})
+            settings.rememberedAudioLanguage?.let { language->SettingsRow(Icons.Rounded.Translate,stringResource(R.string.remembered_audio),subtitle=Locale.forLanguageTag(language).displayName,trailing={SingularityIcon(Icons.Rounded.Close,stringResource(R.string.forget_audio),{model.change{it.copy(rememberedAudioLanguage=null)}})}) }
             SettingsRow(Icons.Rounded.Bookmark,stringResource(R.string.remembered_channels),value=channels.size.toString(),onClick={sheet="channels"})
         }
         SectionHeader(stringResource(R.string.downloads))
@@ -341,7 +357,7 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
         }
     }
     sheet?.let{type->SingularitySheet({sheet=null}){when(type){
-        "language"->LanguagePicker(settings.preferredAudioLanguage){language->model.change{it.copy(preferredAudioLanguage=language)};sheet=null}
+        "language"->LanguagePicker(settings.preferredAudioLanguage){language->model.change{it.copy(preferredAudioLanguage=language,rememberedAudioLanguage=null)};sheet=null}
         "quality"->listOf(720,1080,Int.MAX_VALUE).forEach{quality->SingularityButton(if(quality==Int.MAX_VALUE)stringResource(R.string.max)else "${quality}p",{model.change{it.copy(defaultMaxQuality=quality)};sheet=null},variant=if(quality==settings.defaultMaxQuality)"primary"else"secondary")}
         "accent"->listOf("EMBER","PLASMA","BLUESHIFT").forEach{preset->val color=when(preset){"PLASMA"->c.plasma;"BLUESHIFT"->c.blueshift;else->c.ember};val label=stringResource(when(preset){"PLASMA"->R.string.accent_rose;"BLUESHIFT"->R.string.accent_blue;else->R.string.accent_amber});Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable{model.change{it.copy(accentPreset=preset)};sheet=null}.padding(16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(16.dp)){Box(Modifier.size(28.dp).background(color,CircleShape));Text(label,color=c.text,modifier=Modifier.weight(1f));if(preset==settings.accentPreset)Icon(Icons.Rounded.Check,null,tint=c.accent)}}
         "channels"->if(channels.isEmpty())Text(stringResource(R.string.empty_channels),color=c.mid)else channels.forEach{pref->SettingsRow(Icons.Rounded.Bookmark,all.firstOrNull{it.channelId==pref.channelId}?.channelName ?: pref.channelId,subtitle=pref.languageTag,onClick={model.forget(pref.channelId)},trailing={SingularityIcon(Icons.Rounded.Delete,stringResource(R.string.delete),{model.forget(pref.channelId)})})}

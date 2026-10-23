@@ -31,20 +31,24 @@ abstract class ScreenModel:ViewModel() {
     val state=_state.asStateFlow()
     private var fetch:Job?=null
     init {work{val p=prefs.flow.first();if(_state.value.url.isBlank())_state.value=_state.value.copy(height=p.defaultMaxQuality)};if(_state.value.url.isNotBlank())input(_state.value.url)}
-    fun input(url:String,immediate:Boolean=false,refresh:Boolean=false){if(_state.value.busy)return;saved["url"]=url;fetch?.cancel();_state.value=CaptureState(url=url,height=_state.value.height,audioOnly=_state.value.audioOnly,modalOpen=_state.value.modalOpen || (url.isNotBlank() && (immediate || UrlParser.parse(url)!=null)));if(url.isBlank())return
+    fun input(url:String,immediate:Boolean=false,refresh:Boolean=false){if(_state.value.busy)return;val previous=_state.value.takeIf{refresh && UrlParser.parse(it.url)==UrlParser.parse(url)};saved["url"]=url;fetch?.cancel();_state.value=CaptureState(url=url,height=_state.value.height,audioOnly=_state.value.audioOnly,modalOpen=_state.value.modalOpen || (url.isNotBlank() && (immediate || UrlParser.parse(url)!=null)));if(url.isBlank())return
         fetch=work {
             if(!immediate)delay(400)
             if(UrlParser.parse(url)==null){_state.value=_state.value.copy(error="URL");return@work}
             _state.value=_state.value.copy(loading=true)
             try {val link=UrlParser.parse(url);when(val resolved=if(refresh && link is YoutubeLink.Video)ResolvedLink.Video(backend.refreshStreams(link.id))else backend.resolve(url)) {
-                is ResolvedLink.Video->{val p=prefs.flow.first();val remembered=dao.channelLanguage(resolved.details.channelId);val selected=AudioTrackSelector.select(resolved.details.tracks,p.preferredAudioLanguage,remembered,p.autoPickDubbed,p.askWhenAlternatives);_state.value=_state.value.copy(loading=false,result=resolved.details,trackId=selected.track?.id,prompt=selected.prompt)}
+                is ResolvedLink.Video->{val p=prefs.flow.first();val remembered=p.rememberedAudioLanguage ?: dao.channelLanguage(resolved.details.channelId);val selected=AudioTrackSelector.select(resolved.details.tracks,p.preferredAudioLanguage,remembered,p.autoPickDubbed,p.askWhenAlternatives)
+                    val oldTrack=previous?.result?.tracks?.firstOrNull{it.id==previous.trackId}
+                    val restored=oldTrack?.let{AudioTrackSelector.restore(resolved.details.tracks,it.id,it.locale,it.type)}
+                    val unavailable=oldTrack!=null && restored==null
+                    _state.value=_state.value.copy(loading=false,result=resolved.details,trackId=if(unavailable)null else restored?.id ?: selected.track?.id,prompt=unavailable || (previous?.prompt ?: selected.prompt),remember=!unavailable && (previous?.remember ?: false),error=if(unavailable)"AUDIO_UNAVAILABLE"else null)}
                 is ResolvedLink.Playlist->_state.value=_state.value.copy(loading=false,playlist=resolved,selected=resolved.entries.map{it.ytId}.toSet())
             }}catch(e:TimeoutCancellationException){_state.value=_state.value.copy(loading=false,error="TIMEOUT")}catch(e:CancellationException){throw e}catch(e:Exception){_state.value=_state.value.copy(loading=false,error=Errors.code(e))}
         }
     }
     fun dismissCapture(){if(!_state.value.busy){fetch?.cancel();_state.value=_state.value.copy(modalOpen=false,loading=false)}}
     fun openCapture(){if(_state.value.url.isNotBlank() && _state.value.result==null && _state.value.playlist==null)input(_state.value.url,true)else _state.value=_state.value.copy(modalOpen=true)}
-    fun track(id:String){_state.value=_state.value.copy(trackId=id)}
+    fun track(id:String){_state.value=_state.value.copy(trackId=id,error=null)}
     fun kind(audio:Boolean){_state.value=_state.value.copy(audioOnly=audio)}
     fun height(height:Int){_state.value=_state.value.copy(height=height)}
     fun remember(value:Boolean){_state.value=_state.value.copy(remember=value)}
@@ -64,7 +68,7 @@ abstract class ScreenModel:ViewModel() {
         }finally{_state.value=_state.value.copy(loadingMore=false)}
     }
     fun enqueue()=work {
-        val state=_state.value;if(state.busy)return@work;_state.value=state.copy(busy=true)
+        val state=_state.value;if(state.busy || state.loading || (state.playlist==null && (state.result==null || (state.result.tracks.isNotEmpty() && state.trackId==null))))return@work;_state.value=state.copy(busy=true)
         try {
             if(state.playlist!=null){
                 val failed=mutableSetOf<String>()
@@ -77,8 +81,8 @@ abstract class ScreenModel:ViewModel() {
             else {
                 val link=UrlParser.parse(state.url) as? YoutubeLink.Video ?: return@work
                 val d=state.result;val t=d?.tracks?.firstOrNull{it.id==state.trackId}
-                if(state.remember && t!=null)dao.remember(ChannelAudioPref(d.channelId,t.locale))
                 downloads.enqueue(link.id,state.height,state.audioOnly,d,state.trackId)
+                if(state.remember && t!=null && t.locale.isNotBlank())prefs.update{it.copy(rememberedAudioLanguage=t.locale)}
             }
             fetch?.cancel();saved["url"]="";_state.value=CaptureState(height=state.height,audioOnly=state.audioOnly);effects.send(R.string.added_queue)
         }finally{_state.value=_state.value.copy(busy=false)}

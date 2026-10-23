@@ -10,10 +10,12 @@ import java.io.IOException
 
 /** Bounded complementary clients for partial responses. Revisions verified against yt-dlp. */
 internal class InnertubeFallback(private val client:OkHttpClient) {
-    fun details(id:String,metadata:VideoDetails?,forceAll:Boolean=false):VideoDetails {
+    fun details(id:String,metadata:VideoDetails?,forceAll:Boolean=false,language:String=java.util.Locale.getDefault().language,discoverAudio:Boolean=false):VideoDetails {
         var best=metadata
         var failure:Exception?=null
-        for(profile in listOf("ANDROID_VR","WEB_EMBEDDED_PLAYER","IOS")){
+        val profiles=if(discoverAudio)listOf("IOS","ANDROID_VR","WEB_EMBEDDED_PLAYER")else listOf("ANDROID_VR","WEB_EMBEDDED_PLAYER","IOS")
+        var audioChecked=false
+        for(profile in profiles){
             if(Thread.currentThread().isInterrupted)throw InterruptedException()
             try {
                 val embedded=profile=="WEB_EMBEDDED_PLAYER"
@@ -24,7 +26,7 @@ internal class InnertubeFallback(private val client:OkHttpClient) {
                 val body=buildJsonObject {
                     put("context",buildJsonObject {
                         put("client",buildJsonObject {
-                            put("clientName",profile);put("clientVersion",version);put("hl",java.util.Locale.getDefault().language);put("userAgent",userAgent)
+                            put("clientName",profile);put("clientVersion",version);put("hl",java.util.Locale.forLanguageTag(language).language);put("userAgent",userAgent)
                             if(profile=="ANDROID_VR"){put("deviceMake","Oculus");put("deviceModel","Quest 3");put("androidSdkVersion",32);put("osName","Android");put("osVersion","12L")}
                             if(profile=="IOS"){put("deviceMake","Apple");put("deviceModel","iPhone16,2");put("osName","iPhone");put("osVersion","18.3.2.22D82")}
                         })
@@ -41,7 +43,10 @@ internal class InnertubeFallback(private val client:OkHttpClient) {
                 val response=call.execute().use{if(!it.isSuccessful)throw IOException("HTTP ${it.code}");Json.parseToJsonElement(it.body.string()).jsonObject}
                 val result=parse(id,response,best,headers,signature={YoutubeJavaScriptPlayerManager.deobfuscateSignature(id,it)}){YoutubeJavaScriptPlayerManager.getUrlWithThrottlingParameterDeobfuscated(id,it)}
                 best=best?.let{StreamRecovery.merge(it,result)} ?: result
-                if(!forceAll && !StreamRecovery.needsAlternate(best))return best
+                // IOS enumerates multilingual audio even when another client only returned the default.
+                if(profile=="IOS" && result.tracks.isNotEmpty())audioChecked=true
+                val preferredFound=best.tracks.any{it.type!="DESCRIPTIVE" && it.locale.substringBefore('-').equals(language.substringBefore('-'),true)}
+                if(!forceAll && !StreamRecovery.needsAlternate(best) && (!discoverAudio || (audioChecked && preferredFound)))return best
             }catch(e:InterruptedException){throw e}catch(e:java.util.concurrent.CancellationException){throw e}catch(e:Exception){if(e.message?.contains("429")==true)throw e;failure=e}
         }
         return best?.takeIf{it.videos.isNotEmpty() || it.tracks.isNotEmpty()} ?: throw (failure ?: NoStreams())
@@ -57,6 +62,7 @@ internal class InnertubeFallback(private val client:OkHttpClient) {
             val formats=listOf("adaptiveFormats","formats").flatMap { (data[it] as? JsonArray).orEmpty() }
             val audio=mutableMapOf<String,MutableList<MediaStream>>()
             val trackData=mutableMapOf<String,JsonObject>()
+            val trackTypes=mutableMapOf<String,String>()
             val videos=mutableListOf<MediaStream>()
             for(element in formats) {
                 val f=element as? JsonObject ?: continue
@@ -66,10 +72,15 @@ internal class InnertubeFallback(private val client:OkHttpClient) {
                 val codec=Regex("codecs=\"([^\"]+)\"").find(mime)?.groupValues?.get(1).orEmpty()
                 val isAudio=mime.startsWith("audio/")
                 val stream=MediaStream(f.text("itag"),url,if(mime.contains("webm"))"webm"else if(isAudio)"m4a"else"mp4",codec,f.number("bitrate").toInt(),f.number("height").toInt().takeIf{it>0} ?: Regex("(\\d+)p").find(f.text("qualityLabel"))?.groupValues?.get(1)?.toIntOrNull() ?: 0,f.number("fps").toInt(),f.number("contentLength"),!isAudio && !codec.contains(","),f.text("qualityLabel").contains("HDR"),headers=headers)
-                if(isAudio){val track=f.obj("audioTrack");val key=track.text("id").ifBlank{"original"};audio.getOrPut(key){mutableListOf()}.add(stream);trackData[key]=track}
+                if(isAudio){val track=f.obj("audioTrack");val key=track.text("id").ifBlank{"original"};audio.getOrPut(key){mutableListOf()}.add(stream);trackData[key]=track
+                    val tagged=runCatching{org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.extractAudioTrackType(f.text("xtags"))?.name}.getOrNull()
+                    val name=track.text("displayName").lowercase(java.util.Locale.ROOT)
+                    val type=tagged ?: when { "descriptive" in name || "descriptiv" in name->"DESCRIPTIVE"; "original" in name->"ORIGINAL"; key=="original"->"ORIGINAL"; else->"UNKNOWN" }
+                    if(type!="UNKNOWN" || key !in trackTypes)trackTypes[key]=type
+                }
                 else if(mime.startsWith("video/"))videos.add(stream)
             }
-            val tracks=audio.map { (key,streams)->val t=trackData.getValue(key);val original=t["audioIsDefault"]?.jsonPrimitive?.booleanOrNull ?: (key=="original");AudioTrackOption(key,key.substringBefore('.').takeUnless{it=="original"}.orEmpty(),if(original)"ORIGINAL"else"DUBBED",t.text("displayName"),streams,original) }
+            val tracks=audio.map { (key,streams)->val t=trackData.getValue(key);val isDefault=t["audioIsDefault"]?.jsonPrimitive?.booleanOrNull ?: (key=="original");val type=trackTypes.getValue(key).let{if(it=="UNKNOWN" && trackTypes.values.any{value->value=="ORIGINAL"})"DUBBED"else it};AudioTrackOption(key,key.substringBefore('.').takeUnless{it=="original"}.orEmpty(),type,t.text("displayName"),streams,isDefault) }
             if(videos.isEmpty() && tracks.isEmpty())throw NoStreams()
             val thumbs=v.obj("thumbnail")["thumbnails"] as? JsonArray
             val base=metadata ?: VideoDetails(id,v.text("title"),"https://www.youtube.com/channel/${v.text("channelId")}",v.text("author"),"",(thumbs?.lastOrNull() as? JsonObject)?.text("url").orEmpty(),v.number("lengthSeconds")*1000,v.number("viewCount"),0,v.text("shortDescription").take(2000),emptyList(),emptyList())

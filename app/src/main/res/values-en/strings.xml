@@ -213,4 +213,11 @@
     <string name="capture_modal_hint">Quality, audio and download in one place</string>
     <string name="quality_incomplete">Only a few qualities were recovered. This does not confirm the video’s maximum quality.</string>
     <string name="find_more_formats">Find more qualities</string>
+    <string name="remember_audio">Remember this language</string>
+    <string name="remember_audio_body">Use it for future downloads when available. You can clear it in Settings.</string>
+    <string name="remembered_audio">Remembered download language</string>
+    <string name="forget_audio">Forget remembered language</string>
+    <string name="selected_audio">Audio: %1$s</string>
+    <string name="error_audio_unavailable">The selected audio track is no longer available. Analyze the link again and choose a language.</string>
+    <string name="remembered_audio_missing">Your remembered language is unavailable for this video. Check the selected audio before downloading.</string>
 </resources>

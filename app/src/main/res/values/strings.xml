@@ -213,4 +213,11 @@
     <string name="capture_modal_hint">Calidad, audio y descarga en un solo lugar</string>
     <string name="quality_incomplete">Se recuperaron pocas calidades. Esto no confirma la calidad máxima del vídeo.</string>
     <string name="find_more_formats">Buscar más calidades</string>
+    <string name="remember_audio">Recordar este idioma</string>
+    <string name="remember_audio_body">Usarlo en próximas descargas cuando esté disponible. Puedes borrarlo en Ajustes.</string>
+    <string name="remembered_audio">Idioma recordado para descargas</string>
+    <string name="forget_audio">Olvidar idioma recordado</string>
+    <string name="selected_audio">Audio: %1$s</string>
+    <string name="error_audio_unavailable">La pista de audio elegida ya no está disponible. Vuelve a analizar el enlace y elige el idioma.</string>
+    <string name="remembered_audio_missing">El idioma recordado no está disponible en este vídeo. Revisa el audio seleccionado antes de descargar.</string>
 </resources>

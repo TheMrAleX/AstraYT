@@ -50,9 +50,9 @@ import javax.inject.*
             val avatarTask=async {saveArt(details.channelAvatar,File(art,"channel-${details.channelId.hashCode()}.webp"),192)}
             if(cuts.isEmpty() && ((audioOnly && !plan.extractAudio) || (!audioOnly && plan.audio==null))){copyToStore(if(audioOnly)audio ?: throw IOException("Missing audio")else video ?: throw IOException("Missing video"),uri,"w")}
             else {
-                try {context.contentResolver.openFileDescriptor(uri,"rw")!!.use{fd->mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,fd.fileDescriptor,null,cuts,audioOnly)}}
+                try {context.contentResolver.openFileDescriptor(uri,"rw")!!.use{fd->mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,fd.fileDescriptor,null,cuts,audioOnly,options.audioLanguage)}}
                 catch(e:kotlinx.coroutines.CancellationException){throw e}
-                catch(e:Exception){val temp=File(context.cacheDir,"mux-${row.id}.${plan.container}");try{mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,null,temp.absolutePath,cuts,audioOnly);copyToStore(temp,uri,"wt")}finally{temp.delete()}}
+                catch(e:Exception){val temp=File(context.cacheDir,"mux-${row.id}.${plan.container}");try{mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,null,temp.absolutePath,cuts,audioOnly,options.audioLanguage);copyToStore(temp,uri,"wt")}finally{temp.delete()}}
             }
             withContext(NonCancellable){
             if(Build.VERSION.SDK_INT>=29)context.contentResolver.update(uri,ContentValues().apply{put(MediaStore.MediaColumns.IS_PENDING,0)},null,null)
@@ -60,7 +60,7 @@ import javax.inject.*
             val color=thumb?.let{BitmapFactory.decodeFile(it.absolutePath)}?.let{bitmap->try{Palette.from(bitmap).generate().getDominantColor(0)}finally{bitmap.recycle()}} ?: 0
             val size=context.contentResolver.openFileDescriptor(uri,"r")?.use{it.statSize}?.coerceAtLeast(0) ?: 0
             val previous=dao.byYoutubeId(row.ytId)
-            dao.insertVideo(VideoEntity(id=previous?.id ?: 0,positionMs=previous?.positionMs?.let{CutTimeline.outputTime(it*1000,cuts)?.div(1000) ?: 0}?.coerceAtMost((details.durationMs-removedMs).coerceAtLeast(0)) ?: 0,ytId=row.ytId,title=details.title,channelId=details.channelId,channelName=details.channelName,channelAvatarPath=avatar?.absolutePath.orEmpty(),thumbnailPath=thumb?.absolutePath.orEmpty(),durationMs=(details.durationMs-removedMs).coerceAtLeast(0),viewCount=details.viewCount,uploadDateMs=details.uploadDateMs,description=details.description,contentUri=uri.toString(),fileSizeBytes=size,mimeType=mime,height=plan.height,kind=row.kind,audioLangTag=details.tracks.firstOrNull{it.id==options.trackId}?.locale.orEmpty(),audioLabel=details.tracks.firstOrNull{it.id==options.trackId}?.displayName.orEmpty(),dominantColor=color,likeCount=details.likeCount,removedDurationMs=removedMs))
+            dao.insertVideo(VideoEntity(id=previous?.id ?: 0,positionMs=previous?.positionMs?.let{CutTimeline.outputTime(it*1000,cuts)?.div(1000) ?: 0}?.coerceAtMost((details.durationMs-removedMs).coerceAtLeast(0)) ?: 0,ytId=row.ytId,title=details.title,channelId=details.channelId,channelName=details.channelName,channelAvatarPath=avatar?.absolutePath.orEmpty(),thumbnailPath=thumb?.absolutePath.orEmpty(),durationMs=(details.durationMs-removedMs).coerceAtLeast(0),viewCount=details.viewCount,uploadDateMs=details.uploadDateMs,description=details.description,contentUri=uri.toString(),fileSizeBytes=size,mimeType=mime,height=plan.height,kind=row.kind,audioLangTag=options.audioLanguage ?: details.tracks.firstOrNull{it.id==options.trackId}?.locale.orEmpty(),audioLabel=options.audioLabel ?: details.tracks.firstOrNull{it.id==options.trackId}?.displayName.orEmpty(),dominantColor=color,likeCount=details.likeCount,removedDurationMs=removedMs))
             previous?.takeIf{it.contentUri!=uri.toString()}?.let{old->runCatching{context.contentResolver.delete(Uri.parse(old.contentUri),null,null)}}
             }
         }}catch(e:Exception){withContext(NonCancellable){
@@ -92,7 +92,7 @@ import javax.inject.*
             },duration)
         }finally{extractor.release()}
     }
-    private suspend fun mux(video:File,audio:File?,container:String,fd:FileDescriptor?,path:String?,cuts:List<Cut>,audioOnly:Boolean=false) {
+    private suspend fun mux(video:File,audio:File?,container:String,fd:FileDescriptor?,path:String?,cuts:List<Cut>,audioOnly:Boolean=false,audioLanguage:String?=null) {
         val format=if(container=="webm")MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
         val mux=if(fd!=null)MediaMuxer(fd,format)else MediaMuxer(path!!,format)
         val extractors=mutableListOf<MediaExtractor>();var started=false
@@ -110,6 +110,7 @@ import javax.inject.*
                 indices.forEach { index->
                     val ex=MediaExtractor();extractors.add(ex);ex.setDataSource(file.absolutePath);ex.selectTrack(index)
                     val track=ex.getTrackFormat(index)
+                    if(track.getString(MediaFormat.KEY_MIME).orEmpty().startsWith("audio/") && !audioLanguage.isNullOrBlank())track.setString(MediaFormat.KEY_LANGUAGE,runCatching{java.util.Locale.forLanguageTag(audioLanguage).isO3Language}.getOrDefault(audioLanguage))
                     if(track.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE))capacity=maxOf(capacity,track.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE))
                     tracks.add(ex to mux.addTrack(track))
                 }

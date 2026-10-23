@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.*
 import kotlin.random.Random
 
-@kotlinx.serialization.Serializable data class DownloadOptions(val details:VideoDetails?=null,val trackId:String?=null,val height:Int=1080,val container:String="",val audioOnly:Boolean=false,val sponsorBlockCategories:Set<String> = emptySet(),val pinnedVideoId:String?=null,val pinnedAudioId:String?=null,val planPinned:Boolean=false,val requestedHeight:Int?=null)
+@kotlinx.serialization.Serializable data class DownloadOptions(val details:VideoDetails?=null,val trackId:String?=null,val height:Int=1080,val container:String="",val audioOnly:Boolean=false,val sponsorBlockCategories:Set<String> = emptySet(),val pinnedVideoId:String?=null,val pinnedAudioId:String?=null,val planPinned:Boolean=false,val requestedHeight:Int?=null,val audioLanguage:String?=null,val audioType:String?=null,val audioLabel:String?=null,val requestedAudioLanguage:String?=null)
 data class Progress(val done:Long,val total:Long,val speed:Long,val eta:Long) {val fraction get()=if(total>0)done.toFloat()/total else 0f}
 private class StreamExpired:IOException()
 @Singleton class DownloadManager @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val preferences:Preferences,private val backend:YoutubeBackend,private val client:OkHttpClient,private val storage:MediaStorage) {
@@ -80,9 +80,9 @@ private class StreamExpired:IOException()
     suspend fun enqueue(videoId:String,height:Int,audioOnly:Boolean,details:VideoDetails?=null,trackId:String?=null,title:String?=null,channel:String="",thumbnail:String=""):Long {
         initialize()
         val prefs=preferences.flow.first()
-        val track=details?.tracks?.firstOrNull{it.id==trackId} ?: details?.let{AudioTrackSelector.select(it.tracks,prefs.preferredAudioLanguage,dao.channelLanguage(it.channelId),prefs.autoPickDubbed,batch=true).track}
+        val track=details?.tracks?.firstOrNull{it.id==trackId} ?: details?.let{AudioTrackSelector.select(it.tracks,prefs.preferredAudioLanguage,prefs.rememberedAudioLanguage ?: dao.channelLanguage(it.channelId),prefs.autoPickDubbed,batch=true).track}
         val chosen=details?.let{StreamPlanner.default(StreamPlanner.options(it,track,audioOnly),height) ?: throw NoStreams()}
-        val options=DownloadOptions(details,track?.id ?: trackId,chosen?.height ?: height,container=chosen?.container.orEmpty(),audioOnly=audioOnly,sponsorBlockCategories=if(prefs.sponsorBlockEnabled)prefs.sponsorBlockCategories else emptySet(),pinnedVideoId=chosen?.video?.id,pinnedAudioId=chosen?.audio?.id,planPinned=chosen!=null,requestedHeight=height)
+        val options=DownloadOptions(details,track?.id ?: trackId,chosen?.height ?: height,container=chosen?.container.orEmpty(),audioOnly=audioOnly,sponsorBlockCategories=if(prefs.sponsorBlockEnabled)prefs.sponsorBlockCategories else emptySet(),pinnedVideoId=chosen?.video?.id,pinnedAudioId=chosen?.audio?.id,planPinned=chosen!=null,requestedHeight=height,audioLanguage=track?.locale,audioType=track?.type,audioLabel=track?.displayName,requestedAudioLanguage=prefs.rememberedAudioLanguage ?: prefs.preferredAudioLanguage.takeIf{prefs.autoPickDubbed || !prefs.askWhenAlternatives})
         val id=dao.enqueue(DownloadEntity(ytId=videoId,url=UrlParser.canonical(videoId),title=details?.title ?: title ?: context.getString(con.themralex.astrayt.R.string.pending_video),channelName=details?.channelName ?: channel,thumbnailPath=details?.thumbnail ?: thumbnail,kind=if(audioOnly)"AUDIO"else"VIDEO",optionsJson=Json.encodeToString(options)))
         startService();return id
     }
@@ -115,15 +115,24 @@ private class StreamExpired:IOException()
             awaitNetwork(row.id,prefs,"FETCHING")
             val cuts=if(options.sponsorBlockCategories.isEmpty())emptyList()else SponsorBlock(client).segments(row.ytId,options.sponsorBlockCategories)
             var details=options.details?.takeIf{System.currentTimeMillis()-it.fetchedAt<1200000 && (it.videos.isNotEmpty() || it.tracks.isNotEmpty())} ?: backend.details(row.ytId)
-            var remembered=dao.channelLanguage(details.channelId)
-            fun selectedTrack()=details.tracks.firstOrNull{it.id==options.trackId} ?: if(options.planPinned && options.trackId!=null)throw NoStreams() else AudioTrackSelector.select(details.tracks,prefs.preferredAudioLanguage,remembered,prefs.autoPickDubbed,batch=true).track
+            val remembered=options.requestedAudioLanguage ?: prefs.rememberedAudioLanguage ?: dao.channelLanguage(details.channelId)
+            fun selectedTrack():AudioTrackOption? {
+                val id=options.trackId
+                if(id!=null)return AudioTrackSelector.restore(details.tracks,id,options.audioLanguage,options.audioType) ?: throw IOException("AUDIO_UNAVAILABLE")
+                return AudioTrackSelector.select(details.tracks,prefs.preferredAudioLanguage,remembered,prefs.autoPickDubbed,batch=true).track
+            }
             var pinned:QualityOption?=null
             fun quality():QualityOption {
                 val progressiveAudio=options.planPinned && details.videos.any{it.id==options.pinnedAudioId && !it.videoOnly}
-                val all=StreamPlanner.options(details,if(progressiveAudio)null else selectedTrack(),options.audioOnly,options.pinnedAudioId.takeIf{options.planPinned})
+                val track=if(progressiveAudio)null else selectedTrack()
+                val pinnedProgressive=options.planPinned && !options.audioOnly && details.videos.any{it.id==options.pinnedVideoId && !it.videoOnly}
+                // Preserve a previously downloaded original; repair old dubbed plans by adding their chosen audio.
+                val embeddedOriginal=pinnedProgressive && options.pinnedAudioId==null && track?.type=="ORIGINAL"
+                val repairDub=pinnedProgressive && options.pinnedAudioId==null && track!=null && track.type!="ORIGINAL"
+                val all=StreamPlanner.options(details,if(embeddedOriginal)null else track,options.audioOnly,options.pinnedAudioId.takeIf{options.planPinned},options.pinnedVideoId.takeIf{options.planPinned})
                 val previous=pinned
                 return (if(previous==null && !options.planPinned)StreamPlanner.default(all,options.height)
-                    else if(previous==null)all.firstOrNull{it.video?.id==options.pinnedVideoId && it.audio?.id==options.pinnedAudioId && it.container==options.container && it.height==options.height}
+                    else if(previous==null)all.firstOrNull{it.video?.id==options.pinnedVideoId && (it.audio?.id==options.pinnedAudioId || repairDub) && it.container==options.container && it.height==options.height}
                     else all.firstOrNull{it.video?.id==previous.video?.id && it.audio?.id==previous.audio?.id && it.container==previous.container && it.height==previous.height})
                     ?: throw NoStreams()
             }
@@ -132,13 +141,14 @@ private class StreamExpired:IOException()
             val refreshMutex=Mutex();var refreshed=false
             suspend fun refresh(){refreshMutex.withLock{if(!refreshed){details=backend.refreshStreams(row.ytId);refreshed=true}}}
             var plan=quality();pinned=plan
-            options=options.copy(trackId=if(options.planPinned || plan.extractAudio)options.trackId else selectedTrack()?.id,pinnedVideoId=plan.video?.id,pinnedAudioId=plan.audio?.id,container=plan.container,height=plan.height,planPinned=true)
+            val selected=if(plan.extractAudio || (options.planPinned && options.trackId==null))null else selectedTrack()
+            options=options.copy(trackId=options.trackId ?: selected?.id,audioLanguage=options.audioLanguage ?: selected?.locale,audioType=options.audioType ?: selected?.type,audioLabel=options.audioLabel ?: selected?.displayName,pinnedVideoId=plan.video?.id,pinnedAudioId=plan.audio?.id,container=plan.container,height=plan.height,planPinned=true)
             dao.options(row.id,Json.encodeToString(options))
             dao.metadata(row.id,details.title,details.channelName,details.thumbnail)
             awaitNetwork(row.id,prefs)
             val lengths=mutableMapOf<String,Long>()
-            suspend fun length(stream:MediaStream):Long {return try {contentLength(row.id,stream.url,stream.headers)}catch(e:StreamExpired){refresh();plan=quality();(if(stream.videoOnly)plan.video else plan.audio ?: plan.video)?.let{contentLength(row.id,it.url,it.headers)} ?: throw e}}
-            plan.video?.let{lengths["video"]=length(it)};plan.audio?.let{lengths["audio"]=length(it)}
+            suspend fun length(key:String,stream:MediaStream):Long {return try {contentLength(row.id,stream.url,stream.headers)}catch(e:StreamExpired){refresh();plan=quality();(if(key=="video")plan.video else plan.audio)?.let{contentLength(row.id,it.url,it.headers)} ?: throw e}}
+            plan.video?.let{lengths["video"]=length("video",it)};plan.audio?.let{lengths["audio"]=length("audio",it)}
             val total=lengths.values.sum()
             // Existing preallocated files already occupy storage; require only new allocation plus headroom.
             val allocation=lengths.entries.sumOf{(key,length)->(length-File(dir,"$key.part").length()).coerceAtLeast(0)}
