@@ -49,7 +49,7 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
             buffered=player.bufferedPosition.coerceAtLeast(0),speed=player.playbackParameters.speed,
             audioTracks=tracks(player,C.TRACK_TYPE_AUDIO),subtitleTracks=tracks(player,C.TRACK_TYPE_TEXT),
             playWhenReady=player.playWhenReady,ended=player.playbackState==Player.STATE_ENDED,errorCode=player.playerError?.errorCode,hasPrevious=index>0,hasNext=index>=0 && index<playlist.lastIndex)
-        if(player.trackSelectionParameters.getTrackTypeDisabled(C.TRACK_TYPE_VIDEO)!=audioMode)player.trackSelectionParameters=player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO,audioMode).build()
+        if(player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_VIDEO)!=audioMode)player.trackSelectionParameters=player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO,audioMode).build()
     }
     private val _state=MutableStateFlow(PlaybackState())
     val state=_state.asStateFlow()
