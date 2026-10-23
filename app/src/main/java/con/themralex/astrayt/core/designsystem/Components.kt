@@ -39,26 +39,28 @@ import kotlin.random.Random
     Box(Modifier.fillMaxSize().background(c.void),content=content)
 }
 
-@Composable fun BlackHoleHero(size: Dp=220.dp, animate: Boolean=true) {
-    val c=SingularityTheme.colors
+@Composable fun AstraLogo(modifier:Modifier=Modifier) {
+    androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(con.themralex.astrayt.R.drawable.astra_logo),null,modifier,contentScale=androidx.compose.ui.layout.ContentScale.Fit)
+}
+@Composable fun BlackHoleHero(size:Dp=220.dp,animate:Boolean=true) {
     val enabled=animate && SingularityTheme.motion.enabled
-    val breath=if(enabled)rememberInfiniteTransition(label="horizon").animateFloat(.72f,1f,infiniteRepeatable(tween(6000,easing=FastOutSlowInEasing),RepeatMode.Reverse),label="light").value else .85f
-    Canvas(Modifier.size(size).clearAndSetSemantics {}) {
-        val r=this.size.minDimension*.175f
-        val center=this.center
-        drawCircle(Brush.radialGradient(listOf(c.accent.copy(alpha=.10f*breath),Color.Transparent),center,r*2.05f),r*2.05f)
-        // Fine orbital lines and a continuous lens, with no filled neon surfaces.
-        rotate(-14f) {
-            repeat(18){i->
-                val spread=1f+i*.032f
-                val w=r*3.65f*spread;val h=r*.58f*spread
-                drawOval(c.accent.copy(alpha=(.17f-i*.007f).coerceAtLeast(.02f)*breath),Offset(center.x-w/2,center.y-h/2),Size(w,h),style=Stroke((if(i<3)1.1f else .45f).dp.toPx()))
+    val scale=if(enabled)rememberInfiniteTransition(label="horizon").animateFloat(.96f,1f,infiniteRepeatable(tween(5000,easing=FastOutSlowInEasing),RepeatMode.Reverse),label="light").value else 1f
+    AstraLogo(Modifier.size(size).graphicsLayer{scaleX=scale;scaleY=scale}.clearAndSetSemantics {})
+}
+
+@Composable fun IndeterminateProgressLine(modifier:Modifier=Modifier) {
+    val c=SingularityTheme.colors
+    val enabled=SingularityTheme.motion.enabled
+    val phase=if(enabled)rememberInfiniteTransition(label="flow").animateFloat(0f,1f,infiniteRepeatable(tween(1800,easing=LinearEasing)),label="travel").value else .35f
+    Canvas(modifier.fillMaxWidth().height(3.dp).clip(CircleShape).semantics{progressBarRangeInfo=ProgressBarRangeInfo.Indeterminate}) {
+        drawRoundRect(c.hairline,cornerRadius=CornerRadius(size.height/2))
+        clipRect {
+            repeat(if(enabled)2 else 1){index->
+                val p=(phase+index*.5f)%1f
+                val width=size.width*.3f
+                val x=(p*1.3f-.3f)*size.width
+                drawRoundRect(Brush.horizontalGradient(listOf(c.accent.copy(alpha=.25f),c.accent,c.corona),x,x+width),Offset(x,0f),Size(width,size.height),CornerRadius(size.height/2))
             }
-            drawCircle(c.void,r)
-            repeat(9){i->drawCircle(c.accent.copy(alpha=(.13f-i*.012f)*breath),r+i*1.5.dp.toPx(),style=Stroke(1.dp.toPx()))}
-            drawCircle(c.corona.copy(alpha=.9f),r,style=Stroke(.85f.dp.toPx()))
-            drawArc(Brush.verticalGradient(listOf(c.corona,c.accent.copy(alpha=.12f))),185f,170f,false,Offset(center.x-r*1.18f,center.y-r*1.18f),Size(r*2.36f,r*2.36f),style=Stroke(1.5f.dp.toPx()))
-            repeat(8){i->val w=r*(3.7f+i*.11f);val h=r*(.58f+i*.035f);drawArc(c.corona.copy(alpha=(.55f-i*.06f)*breath),0f,180f,false,Offset(center.x-w/2,center.y-h/2),Size(w,h),style=Stroke(.7f.dp.toPx()))}
         }
     }
 }
@@ -226,10 +228,17 @@ import kotlin.random.Random
 @Composable fun EmptyState(title: String,body: String,button: String?=null,onAction: ()->Unit={}) {
     Column(Modifier.fillMaxWidth().padding(24.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(16.dp)){BlackHoleHero(120.dp,false);Text(title,color=SingularityTheme.colors.text,style=SingularityTheme.type.title,textAlign=TextAlign.Center);Text(body,color=SingularityTheme.colors.mid,style=SingularityTheme.type.body,textAlign=TextAlign.Center);button?.let{SingularityButton(it,onAction)}}
 }
-@Composable fun SingularitySwitch(checked: Boolean,onChange: (Boolean)->Unit,label: String) {
+@Composable fun SingularitySwitch(checked:Boolean,onChange:(Boolean)->Unit,label:String,interactive:Boolean=true) {
     val c=SingularityTheme.colors
     val haptics=LocalHapticFeedback.current
-    Box(Modifier.size(56.dp,48.dp).semantics { contentDescription=label;toggleableState=if(checked)androidx.compose.ui.state.ToggleableState.On else androidx.compose.ui.state.ToggleableState.Off }.toggleable(value=checked,role=Role.Switch,onValueChange={haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick);onChange(it)}),contentAlignment=Alignment.Center){Box(Modifier.size(52.dp,30.dp).clip(CircleShape).background(Brush.linearGradient(if(checked)listOf(c.accent,c.accent)else listOf(c.top,c.top))).padding(4.dp)){Box(Modifier.size(22.dp).align(if(checked)Alignment.CenterEnd else Alignment.CenterStart).background(c.text,CircleShape))}}
+    val motion=SingularityTheme.motion.enabled
+    val position by animateFloatAsState(if(checked)1f else 0f,if(motion)spring(dampingRatio=.85f,stiffness=480f)else snap(),label="switch")
+    val toggle=if(interactive)Modifier.semantics{contentDescription=label}.toggleable(value=checked,role=Role.Switch,onValueChange={haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick);onChange(it)})else Modifier.clearAndSetSemantics{}
+    Box(Modifier.size(56.dp,48.dp).then(toggle),contentAlignment=Alignment.Center){
+        Box(Modifier.size(52.dp,30.dp).clip(CircleShape).background(lerp(c.top,c.accent,position.coerceIn(0f,1f))).padding(4.dp)){
+            Box(Modifier.offset(x=22.dp*position.coerceIn(0f,1f)).size(22.dp).background(lerp(c.text,c.void,position.coerceIn(0f,1f)),CircleShape))
+        }
+    }
 }
 @Composable fun SingularitySlider(value: Int,range: IntRange,label: String,showLabel:Boolean=true,onChange: (Int)->Unit) {
     val c=SingularityTheme.colors

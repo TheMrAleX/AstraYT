@@ -4,6 +4,6 @@
     </style>
     <style name="Theme.AstraYT" parent="Theme.AstraYT.Base" />
     <style name="Theme.AstraYT.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#08090B</item><item name="windowSplashScreenAnimatedIcon">@drawable/ic_black_hole</item><item name="postSplashScreenTheme">@style/Theme.AstraYT</item>
+        <item name="windowSplashScreenBackground">#08090B</item><item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item><item name="postSplashScreenTheme">@style/Theme.AstraYT</item>
     </style>
 </resources>

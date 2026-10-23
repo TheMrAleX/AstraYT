@@ -311,62 +311,6 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
         items(rows,key={it.id},contentType={it.kind}){v->VideoCardCompact(v.title,Formatters.duration(v.durationMs),v.thumbnailPath){onPlay(v,rows)}}
     }
 }
-@Composable fun SettingsScreen(model:SettingsModel,all:List<VideoEntity>) {
-    val settings by model.state.collectAsStateWithLifecycle();val channels by model.channels.collectAsStateWithLifecycle();val c=SingularityTheme.colors;val context=LocalContext.current
-    var sheet by remember{mutableStateOf<String?>(null)}
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        PageHeading(stringResource(R.string.settings),stringResource(R.string.settings_subtitle))
-        SectionHeader(stringResource(R.string.audio))
-        GlassCard {
-            SettingsRow(Icons.Rounded.Language,stringResource(R.string.preferred_language),value=Locale.forLanguageTag(settings.preferredAudioLanguage).displayLanguage,onClick={sheet="language"})
-            SettingsRow(Icons.Rounded.QuestionAnswer,stringResource(R.string.ask_alternatives),trailing={SingularitySwitch(settings.askWhenAlternatives,{v->model.change{it.copy(askWhenAlternatives=v)}},stringResource(R.string.ask_alternatives))})
-            SettingsRow(Icons.Rounded.Translate,stringResource(R.string.auto_dub),trailing={SingularitySwitch(settings.autoPickDubbed,{v->model.change{it.copy(autoPickDubbed=v)}},stringResource(R.string.auto_dub))})
-            settings.rememberedAudioLanguage?.let { language->SettingsRow(Icons.Rounded.Translate,stringResource(R.string.remembered_audio),subtitle=Locale.forLanguageTag(language).displayName,trailing={SingularityIcon(Icons.Rounded.Close,stringResource(R.string.forget_audio),{model.change{it.copy(rememberedAudioLanguage=null)}})}) }
-            SettingsRow(Icons.Rounded.Bookmark,stringResource(R.string.remembered_channels),value=channels.size.toString(),onClick={sheet="channels"})
-        }
-        SectionHeader(stringResource(R.string.downloads))
-        GlassCard {
-            SettingsRow(Icons.Rounded.HighQuality,stringResource(R.string.max_quality),value=if(settings.defaultMaxQuality==Int.MAX_VALUE)stringResource(R.string.max)else "${settings.defaultMaxQuality}p",onClick={sheet="quality"})
-            SingularitySlider(settings.maxConcurrentDownloads,1..5,stringResource(R.string.concurrent)){v->model.change{it.copy(maxConcurrentDownloads=v)}}
-            SingularitySlider(settings.connectionsPerStream,1..6,stringResource(R.string.connections)){v->model.change{it.copy(connectionsPerStream=v)}}
-            SettingsRow(Icons.Rounded.Wifi,stringResource(R.string.wifi_only),trailing={SingularitySwitch(settings.wifiOnly,{v->model.change{it.copy(wifiOnly=v)}},stringResource(R.string.wifi_only))})
-            SettingsRow(Icons.Rounded.Folder,stringResource(R.string.folder),subtitle="Movies/AstraYT · Music/AstraYT")
-            SettingsRow(Icons.Rounded.BatteryChargingFull,stringResource(R.string.battery),onClick={runCatching{context.startActivity(Intent(SystemSettings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))}})
-        }
-        SectionHeader("SponsorBlock")
-        GlassCard {
-            SettingsRow(Icons.Rounded.ContentCut,stringResource(R.string.sponsorblock_enable),subtitle=stringResource(R.string.sponsorblock_explanation),trailing={SingularitySwitch(settings.sponsorBlockEnabled,{v->model.change{it.copy(sponsorBlockEnabled=v)}},stringResource(R.string.sponsorblock_enable))})
-            if(settings.sponsorBlockEnabled) {
-                listOf("sponsor" to R.string.sb_sponsor,"intro" to R.string.sb_intro,"outro" to R.string.sb_outro,"selfpromo" to R.string.sb_selfpromo,"interaction" to R.string.sb_interaction,"music_offtopic" to R.string.sb_music,"preview" to R.string.sb_preview,"filler" to R.string.sb_filler).forEach { (key,label)->
-                    SettingsRow(Icons.Rounded.Remove,stringResource(label),trailing={SingularitySwitch(key in settings.sponsorBlockCategories,{v->model.change{it.copy(sponsorBlockCategories=if(v)it.sponsorBlockCategories+key else it.sponsorBlockCategories-key)}},stringResource(label))})
-                }
-                Text(stringResource(R.string.sponsorblock_cuts),color=c.low,style=SingularityTheme.type.caption)
-            }
-        }
-        SectionHeader(stringResource(R.string.appearance))
-        GlassCard {
-            SettingsRow(Icons.Rounded.DarkMode,stringResource(R.string.amoled),trailing={SingularitySwitch(settings.amoledPureBlack,{v->model.change{it.copy(amoledPureBlack=v)}},stringResource(R.string.amoled))})
-            SettingsRow(Icons.Rounded.Animation,stringResource(R.string.animations),trailing={SingularitySwitch(settings.animationsEnabled,{v->model.change{it.copy(animationsEnabled=v)}},stringResource(R.string.animations))})
-            SettingsRow(Icons.Rounded.Palette,stringResource(R.string.accent),value=stringResource(when(settings.accentPreset){"PLASMA"->R.string.accent_rose;"BLUESHIFT"->R.string.accent_blue;else->R.string.accent_amber}),onClick={sheet="accent"})
-        }
-        SectionHeader(stringResource(R.string.storage))
-        GlassCard {Text(Formatters.bytes(all.sumOf{it.fileSizeBytes}),color=c.text);SingularityButton(stringResource(R.string.clear_cache),{model.work{kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){coil3.SingletonImageLoader.get(context).diskCache?.clear();coil3.SingletonImageLoader.get(context).memoryCache?.clear()};model.effects.send(R.string.cache_cleared)}},variant="secondary")}
-        SectionHeader(stringResource(R.string.about))
-        GlassCard {
-            Text("AstraYT ${BuildConfig.VERSION_NAME}",color=c.text,style=SingularityTheme.type.title)
-            SettingsRow(Icons.Rounded.SystemUpdate,stringResource(R.string.updates),onClick={model.checkUpdate()})
-            SettingsRow(Icons.Rounded.Code,stringResource(R.string.repository),onClick={external(context,"https://github.com/${BuildConfig.GITHUB_REPOSITORY}")})
-            SettingsRow(Icons.Rounded.Description,stringResource(R.string.licenses),subtitle="NewPipeExtractor · GPL-3.0",onClick={external(context,"https://github.com/${BuildConfig.GITHUB_REPOSITORY}/blob/main/LICENSE")})
-            Text(stringResource(R.string.legal),color=c.mid,style=SingularityTheme.type.body)
-        }
-    }
-    sheet?.let{type->SingularitySheet({sheet=null}){when(type){
-        "language"->LanguagePicker(settings.preferredAudioLanguage){language->model.change{it.copy(preferredAudioLanguage=language,rememberedAudioLanguage=null)};sheet=null}
-        "quality"->listOf(720,1080,Int.MAX_VALUE).forEach{quality->SingularityButton(if(quality==Int.MAX_VALUE)stringResource(R.string.max)else "${quality}p",{model.change{it.copy(defaultMaxQuality=quality)};sheet=null},variant=if(quality==settings.defaultMaxQuality)"primary"else"secondary")}
-        "accent"->listOf("EMBER","PLASMA","BLUESHIFT").forEach{preset->val color=when(preset){"PLASMA"->c.plasma;"BLUESHIFT"->c.blueshift;else->c.ember};val label=stringResource(when(preset){"PLASMA"->R.string.accent_rose;"BLUESHIFT"->R.string.accent_blue;else->R.string.accent_amber});Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable{model.change{it.copy(accentPreset=preset)};sheet=null}.padding(16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(16.dp)){Box(Modifier.size(28.dp).background(color,CircleShape));Text(label,color=c.text,modifier=Modifier.weight(1f));if(preset==settings.accentPreset)Icon(Icons.Rounded.Check,null,tint=c.accent)}}
-        "channels"->if(channels.isEmpty())Text(stringResource(R.string.empty_channels),color=c.mid)else channels.forEach{pref->SettingsRow(Icons.Rounded.Bookmark,all.firstOrNull{it.channelId==pref.channelId}?.channelName ?: pref.channelId,subtitle=pref.languageTag,onClick={model.forget(pref.channelId)},trailing={SingularityIcon(Icons.Rounded.Delete,stringResource(R.string.delete),{model.forget(pref.channelId)})})}
-    }}}
-}
 @Composable fun LanguagePicker(selected:String,onSelect:(String)->Unit) {
     var search by remember{mutableStateOf("")};val locales=remember{val common=listOf(Locale.getDefault().language,"es","en","pt","fr","de","it","ja","ko","zh","ru","ar","hi");(common+Locale.getAvailableLocales().map{it.language}).filter{it.isNotBlank()}.distinct().map{Locale.forLanguageTag(it)}}
     LinkField(search,{search=it},stringResource(R.string.search),{})

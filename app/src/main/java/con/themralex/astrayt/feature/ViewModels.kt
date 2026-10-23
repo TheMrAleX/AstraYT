@@ -133,34 +133,26 @@ abstract class ScreenModel:ViewModel() {
     fun rememberSearch()=work{val q=query.value.trim();if(q.isNotBlank())prefs.update{it.copy(recentSearches=(listOf(q)+it.recentSearches).distinct().take(8))}}
     fun delete(video:VideoEntity)=work{storage.delete(video)}
 }
-@HiltViewModel class SettingsModel @Inject constructor(private val prefs:Preferences,private val dao:AstraDao,private val client:OkHttpClient):ScreenModel() {
+@HiltViewModel class SettingsModel @Inject constructor(private val prefs:Preferences,private val dao:AstraDao,val updates:con.themralex.astrayt.update.AppUpdates,private val saved:SavedStateHandle):ScreenModel() {
     val state=prefs.flow.stateIn(viewModelScope,SharingStarted.Eagerly,Settings())
     val channels=dao.channels().stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
-    private val _update=MutableStateFlow<String?>(null);val update=_update.asStateFlow()
+    val update=updates.state.stateIn(viewModelScope,SharingStarted.Eagerly,con.themralex.astrayt.update.AppUpdateState())
+    val checking=updates.check
+    private val _updateDialog=MutableStateFlow(false);val updateDialog=_updateDialog.asStateFlow()
+    private val _installError=MutableStateFlow(false);val installError=_installError.asStateFlow()
+    init{work{updates.initialize();updates.check()}}
     fun change(transform:(Settings)->Settings)=work{prefs.update(transform)}
     fun forget(id:String)=work{dao.forget(id)}
-    fun checkUpdate()=work {
-        val check=withContext(Dispatchers.IO) {
-            client.newCall(Request.Builder().url("https://api.github.com/repos/${BuildConfig.GITHUB_REPOSITORY}/releases/latest").header("Accept","application/vnd.github+json").build()).execute().use { response->
-                if(response.code==404)return@use false to null
-                if(!response.isSuccessful)throw java.io.IOException("HTTP ${response.code}")
-                val root=Json.parseToJsonElement(response.body.string()).jsonObject
-                val remote=root["tag_name"]?.jsonPrimitive?.content.orEmpty().removePrefix("v").split('.').mapNotNull{it.toIntOrNull()}
-                val local=BuildConfig.VERSION_NAME.split('.').mapNotNull{it.toIntOrNull()}
-                val newer=(0 until maxOf(remote.size,local.size)).firstOrNull{remote.getOrElse(it){0}!=local.getOrElse(it){0}}?.let{remote.getOrElse(it){0}>local.getOrElse(it){0}} ?: false
-                val assets=root["assets"]?.jsonArray.orEmpty().mapNotNull { entry->
-                    val name=entry.jsonObject["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                    val url=entry.jsonObject["browser_download_url"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                    ReleaseAsset(name,url)
-                }
-                newer to if(newer)ReleaseAssetSelector.select(assets,android.os.Build.SUPPORTED_ABIS.toList())?.url else null
-            }
-        }
-        _update.value=check.second
-        prefs.update{it.copy(lastUpdateCheck=System.currentTimeMillis())}
-        effects.send(when { !check.first->R.string.up_to_date;check.second==null->R.string.no_compatible_update;else->R.string.update_available })
-    }
-
+    fun checkInBackground()=work{updates.check()}
+    fun checkUpdate(){_updateDialog.value=true;_installError.value=false;work{updates.check(manual=true)}}
+    fun openUpdate(){_updateDialog.value=true;_installError.value=false}
+    fun closeUpdate(){_updateDialog.value=false}
+    fun dismissUpdate()=work{updates.dismiss()}
+    fun downloadUpdate(){saved["autoInstallTag"]=update.value.release?.tag;_installError.value=false;work{updates.startDownload()}}
+    fun cancelUpdate()=work{saved["autoInstallTag"]=null;updates.cancelDownload()}
+    fun consumeAutoInstall(tag:String?):Boolean {if(tag==null || saved.get<String>("autoInstallTag")!=tag)return false;saved["autoInstallTag"]=null;return true}
+    fun installationFailed(){_installError.value=true;_updateDialog.value=true}
+    fun clearCache(context:android.content.Context)=work{withContext(Dispatchers.IO){coil3.SingletonImageLoader.get(context).diskCache?.clear();coil3.SingletonImageLoader.get(context).memoryCache?.clear()};effects.send(R.string.cache_cleared)}
 }
 @HiltViewModel class MainModel @Inject constructor(val playback:Playback,private val downloads:DownloadManager,private val dao:AstraDao):ScreenModel() {
     init{work{downloads.initialize()}}

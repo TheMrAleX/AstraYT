@@ -81,7 +81,7 @@ import javax.inject.Inject
                 var dockHeight by remember{mutableStateOf(0.dp)}
                 Box(Modifier.fillMaxSize().imePadding()) {
                     NavHost(navController=nav,startDestination=Capture,modifier=Modifier.fillMaxSize(),enterTransition={fadeIn(tween(if(animations)180 else 0))},exitTransition={fadeOut(tween(if(animations)140 else 0))},popEnterTransition={fadeIn(tween(if(animations)220 else 0))}) {
-                        composable<Capture>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){Column{if(update!=null)SingularityButton(stringResource(R.string.update_available),{external(context,update!!)},Modifier.fillMaxWidth(),"secondary");Box(Modifier.weight(1f)){CaptureScreen(capture,prefs,all,{v->main.play(v,all);nav.navigate(PlayerRoute){launchSingleTop=true}})}}}}
+                        composable<Capture>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){CaptureScreen(capture,prefs,all,{v->main.play(v,all);nav.navigate(PlayerRoute){launchSingleTop=true}})}}
                         composable<Queue>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){QueueScreen(queue){id->main.playDownloaded(id);nav.navigate(PlayerRoute){launchSingleTop=true}}}}
                         composable<Library>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){LibraryScreen(library,{v,list,audio->main.play(v,list,audio);nav.navigate(PlayerRoute){launchSingleTop=true}},{nav.navigate(Capture)},{id->nav.navigate(ChannelRoute(id))})}}
                         composable<SettingsRoute>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){SettingsScreen(settings,all)}}
@@ -95,6 +95,7 @@ import javax.inject.Inject
                     }
                 AnimatedVisibility(visible=!isPlayer && !pip,modifier=Modifier.align(Alignment.BottomCenter),enter=fadeIn(tween(if(animations)180 else 0))+slideInVertically(tween(if(animations)220 else 0)){it/5},exit=fadeOut(tween(if(animations)100 else 0))) {
                 Column(Modifier.fillMaxWidth().onSizeChanged{dockHeight=with(density){it.height.toDp()}}.background(SingularityTheme.colors.void).navigationBarsPadding().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    UpdateBanner(settings,update)
                     if(playing.video!=null)MiniPlayer(playing,main.playback,{nav.navigate(PlayerRoute){launchSingleTop=true}},{main.toggle()},{main.close()},Modifier.fillMaxWidth(),active=!isPlayer)
                     val selected=when{destination?.hasRoute<Queue>()==true->1;destination?.hasRoute<Library>()==true||destination?.hasRoute<ChannelRoute>()==true->2;destination?.hasRoute<SettingsRoute>()==true->3;else->0}
                     FloatingNavBar(listOf(stringResource(R.string.capture),stringResource(R.string.queue),stringResource(R.string.library),stringResource(R.string.settings)),listOf(Icons.Rounded.AddLink,Icons.Rounded.Downloading,Icons.Rounded.VideoLibrary,Icons.Rounded.Settings),selected,{index->val route:Any=when(index){1->Queue;2->Library;3->SettingsRoute;else->Capture};nav.navigate(route){popUpTo<Capture>{saveState=true};launchSingleTop=true;restoreState=true}},Modifier.fillMaxWidth())
@@ -103,6 +104,7 @@ import javax.inject.Inject
                 }
             }
             if(prefs.onboardingDone && !pip)CaptureModal(capture,prefs)
+            if(prefs.onboardingDone)UpdateHost(settings,eligible=!pip)
             toast?.let{Toast(stringResource(it),Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start=16.dp,end=16.dp,bottom=if(isPlayer)24.dp else 104.dp))}
         }
     }
