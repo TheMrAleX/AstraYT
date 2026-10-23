@@ -9,6 +9,8 @@ import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.*
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.geometry.*
@@ -91,7 +93,13 @@ private data class DragState(val mode:DragMode,val value:Float=0f,val target:Lon
             })
         })) {
         val label=when{boosted->"2×";drag?.mode==DragMode.SEEK->Formatters.duration(drag!!.target);drag!=null->stringResource(if(drag!!.mode==DragMode.BRIGHTNESS)R.string.brightness else R.string.volume)+" ${(drag!!.value*100).toInt()} %";else->null}
-        if(label!=null)Text(label,color=Color.White,modifier=Modifier.align(Alignment.Center).background(Color.Black.copy(alpha=.75f),RoundedCornerShape(10.dp)).padding(12.dp))
+        if(label!=null)Column(Modifier.align(Alignment.Center).widthIn(min=112.dp,max=220.dp).background(Color.Black.copy(alpha=.82f),RoundedCornerShape(14.dp)).padding(horizontal=18.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp),horizontalAlignment=Alignment.CenterHorizontally){
+            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                if(drag?.mode==DragMode.BRIGHTNESS || drag?.mode==DragMode.VOLUME)Icon(if(drag?.mode==DragMode.BRIGHTNESS)Icons.Rounded.Brightness6 else Icons.Rounded.VolumeUp,null,tint=Color.White,modifier=Modifier.size(20.dp))
+                Text(label,color=Color.White,style=SingularityTheme.type.label.copy(fontFeatureSettings="tnum"))
+            }
+            if(drag?.mode==DragMode.BRIGHTNESS || drag?.mode==DragMode.VOLUME)Box(Modifier.width(128.dp).height(3.dp).background(Color.White.copy(alpha=.2f),CircleShape)){Box(Modifier.fillMaxWidth(drag!!.value).fillMaxHeight().background(Color.White,CircleShape))}
+        }
         flash?.let{(forward,seconds)->Text((if(forward)"+"else"−")+"$seconds s",color=Color.White,modifier=Modifier.align(if(forward)Alignment.CenterEnd else Alignment.CenterStart).padding(24.dp).background(Color.Black.copy(alpha=.6f),CircleShape).padding(20.dp))}
     }
 }

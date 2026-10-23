@@ -25,7 +25,7 @@ abstract class ScreenModel:ViewModel() {
     protected val handler=CoroutineExceptionHandler{_,error->effects.trySend(Errors.string(Errors.code(error)))}
     fun work(block:suspend CoroutineScope.()->Unit)=viewModelScope.launch(handler,block=block)
 }
-@Immutable data class CaptureState(val url:String="",val loading:Boolean=false,val result:VideoDetails?=null,val playlist:ResolvedLink.Playlist?=null,val selected:Set<String> = emptySet(),val error:String?=null,val audioOnly:Boolean=false,val trackId:String?=null,val height:Int=1080,val prompt:Boolean=false,val remember:Boolean=false,val busy:Boolean=false,val loadingMore:Boolean=false,val modalOpen:Boolean=false,val trackExplicit:Boolean=false)
+@Immutable data class CaptureState(val url:String="",val loading:Boolean=false,val result:VideoDetails?=null,val playlist:ResolvedLink.Playlist?=null,val selected:Set<String> = emptySet(),val error:String?=null,val audioOnly:Boolean=false,val trackId:String?=null,val height:Int=1080,val prompt:Boolean=false,val remember:Boolean=false,val busy:Boolean=false,val loadingMore:Boolean=false,val modalOpen:Boolean=false,val trackExplicit:Boolean=false,val subtitleId:String?=null,val rememberSubtitles:Boolean=false,val subtitleExplicit:Boolean=false)
 @HiltViewModel class CaptureModel @Inject constructor(private val saved:SavedStateHandle,private val backend:YoutubeBackend,private val prefs:Preferences,private val dao:AstraDao,private val downloads:DownloadManager):ScreenModel() {
     private val _state=MutableStateFlow(CaptureState(url=saved["url"] ?: ""))
     val state=_state.asStateFlow()
@@ -42,7 +42,8 @@ abstract class ScreenModel:ViewModel() {
                     val refreshed=AudioTrackSelector.afterRefresh(resolved.details.tracks,selected,oldTrack,previous?.trackExplicit==true,previous?.prompt==true)
                     val unavailable=previous?.trackExplicit==true && oldTrack!=null && refreshed.track==null
                     val sameChoice=refreshed.track?.id==previous?.trackId
-                    _state.value=_state.value.copy(loading=false,result=resolved.details,trackId=refreshed.track?.id,prompt=refreshed.prompt,trackExplicit=previous?.trackExplicit==true && !unavailable,remember=sameChoice && (previous?.remember ?: false),error=if(unavailable)"AUDIO_UNAVAILABLE"else null)}
+                    val subtitle=SubtitlePolicy.restore(resolved.details.subtitles,p.subtitleLanguage,previous?.subtitleExplicit==true,previous?.subtitleId)
+                    _state.value=_state.value.copy(loading=false,result=resolved.details,subtitleId=subtitle?.id,subtitleExplicit=previous?.subtitleExplicit==true,rememberSubtitles=previous?.rememberSubtitles ?: false,trackId=refreshed.track?.id,prompt=refreshed.prompt,trackExplicit=previous?.trackExplicit==true && !unavailable,remember=sameChoice && (previous?.remember ?: false),error=if(unavailable)"AUDIO_UNAVAILABLE"else null)}
                 is ResolvedLink.Playlist->_state.value=_state.value.copy(loading=false,playlist=resolved,selected=resolved.entries.map{it.ytId}.toSet())
             }}catch(e:TimeoutCancellationException){_state.value=_state.value.copy(loading=false,error="TIMEOUT")}catch(e:CancellationException){throw e}catch(e:Exception){_state.value=_state.value.copy(loading=false,error=Errors.code(e))}
         }
@@ -50,6 +51,8 @@ abstract class ScreenModel:ViewModel() {
     fun dismissCapture(){if(!_state.value.busy){fetch?.cancel();_state.value=_state.value.copy(modalOpen=false,loading=false)}}
     fun openCapture(){if(_state.value.url.isNotBlank() && _state.value.result==null && _state.value.playlist==null)input(_state.value.url,true)else _state.value=_state.value.copy(modalOpen=true)}
     fun track(id:String){_state.value=_state.value.copy(trackId=id,trackExplicit=true,error=null)}
+    fun subtitle(id:String?){_state.value=_state.value.copy(subtitleId=id,subtitleExplicit=true)}
+    fun rememberSubtitles(value:Boolean){_state.value=_state.value.copy(rememberSubtitles=value)}
     fun kind(audio:Boolean){_state.value=_state.value.copy(audioOnly=audio)}
     fun height(height:Int){_state.value=_state.value.copy(height=height)}
     fun remember(value:Boolean){_state.value=_state.value.copy(remember=value)}
@@ -82,7 +85,8 @@ abstract class ScreenModel:ViewModel() {
             else {
                 val link=UrlParser.parse(state.url) as? YoutubeLink.Video ?: return@work
                 val d=state.result;val t=d?.tracks?.firstOrNull{it.id==state.trackId}
-                downloads.enqueue(link.id,state.height,state.audioOnly,d,state.trackId)
+                downloads.enqueue(link.id,state.height,state.audioOnly,d,state.trackId,subtitle=d?.subtitles?.firstOrNull{it.id==state.subtitleId},subtitleExplicit=true)
+                if(state.rememberSubtitles)prefs.update{it.copy(subtitleLanguage=d?.subtitles?.firstOrNull{it.id==state.subtitleId}?.language)}
                 if(state.remember && t!=null && t.locale.isNotBlank())prefs.update{it.copy(rememberedAudioLanguage=t.locale)}
             }
             fetch?.cancel();saved["url"]="";_state.value=CaptureState(height=state.height,audioOnly=state.audioOnly);effects.send(R.string.added_queue)

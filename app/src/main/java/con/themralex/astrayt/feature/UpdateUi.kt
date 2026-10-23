@@ -122,7 +122,7 @@ import con.themralex.astrayt.update.*
                         SingularityButton(stringResource(if(canInstall)R.string.update_install else R.string.update_allow_install),{install()},Modifier.fillMaxWidth())
                     }else if(release!=null)SingularityButton(stringResource(if(snapshot.stage=="FAILED")R.string.update_retry_download else R.string.update_download,Formatters.bytes(release.size)),model::downloadUpdate,Modifier.fillMaxWidth(),enabled=!checking.checking)
                     else if(error!=null)SingularityButton(stringResource(R.string.retry),model::checkUpdate,Modifier.fillMaxWidth(),enabled=!checking.checking)
-                    SingularityButton(stringResource(R.string.update_later),model::closeUpdate,Modifier.fillMaxWidth(),variant="tertiary")
+                    SingularityButton(stringResource(if(release==null && error==null && !checking.checking)R.string.accept else R.string.update_later),model::closeUpdate,Modifier.fillMaxWidth(),variant="tertiary")
                 }
             }
         }

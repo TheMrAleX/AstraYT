@@ -22,10 +22,10 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.*
 import kotlin.random.Random
 
-@kotlinx.serialization.Serializable data class DownloadOptions(val details:VideoDetails?=null,val trackId:String?=null,val height:Int=1080,val container:String="",val audioOnly:Boolean=false,val sponsorBlockCategories:Set<String> = emptySet(),val pinnedVideoId:String?=null,val pinnedAudioId:String?=null,val planPinned:Boolean=false,val requestedHeight:Int?=null,val audioLanguage:String?=null,val audioType:String?=null,val audioLabel:String?=null,val requestedAudioLanguage:String?=null)
+@kotlinx.serialization.Serializable data class DownloadOptions(val details:VideoDetails?=null,val trackId:String?=null,val height:Int=1080,val container:String="",val audioOnly:Boolean=false,val sponsorBlockCategories:Set<String> = emptySet(),val pinnedVideoId:String?=null,val pinnedAudioId:String?=null,val planPinned:Boolean=false,val requestedHeight:Int?=null,val audioLanguage:String?=null,val audioType:String?=null,val audioLabel:String?=null,val requestedAudioLanguage:String?=null,val subtitleId:String?=null,val subtitleLanguage:String?=null)
 data class Progress(val done:Long,val total:Long,val speed:Long,val eta:Long) {val fraction get()=if(total>0)done.toFloat()/total else 0f}
 private class StreamExpired:IOException()
-@Singleton class DownloadManager @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val preferences:Preferences,private val backend:YoutubeBackend,private val client:OkHttpClient,private val storage:MediaStorage) {
+@Singleton class DownloadManager @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val preferences:Preferences,private val backend:YoutubeBackend,private val client:OkHttpClient,private val storage:MediaStorage,private val subtitles:SubtitleDownloads) {
     private val handler=CoroutineExceptionHandler{_,_->}
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO+handler)
     private val active=ConcurrentHashMap<Long,Job>()
@@ -46,7 +46,7 @@ private class StreamExpired:IOException()
         dao.pauseInterrupted()
         dao.allDownloads().forEach{row->
             val dir=File(context.noBackupFilesDir,"dl/${row.id}")
-            if(storage.recover(row,dir)){dao.progress(row.id,row.bytesTotal,row.bytesTotal);dao.state(row.id,"DONE");dir.deleteRecursively()}
+            if(storage.recover(row,dir)){dao.progress(row.id,row.bytesTotal,row.bytesTotal);dao.state(row.id,"DONE",recoveredSubtitleWarning(row));dir.deleteRecursively()}
             else if(row.state !in setOf("DONE","CANCELED") && File(dir,"state.bin").exists())dao.progress(row.id,ChunkState(dir).validatedBytes(),row.bytesTotal)
         }
         val stored=dao.allDownloads()
@@ -64,6 +64,10 @@ private class StreamExpired:IOException()
         scope.launch {combine(dao.downloads(),preferences.flow){rows,prefs->rows to prefs}.collect{(rows,prefs)->schedule(rows,prefs)}}
         scope.launch {val meters=mutableMapOf<Long,TransferMeter>();var tick=0;while(isActive){delay(250);val now=System.currentTimeMillis();_progress.value=counters.mapValues{(id,c)->val done=c.first.get();val total=c.second.get();val(speed,eta)=meters.getOrPut(id){TransferMeter()}.sample(now,done,total);Progress(done,total,speed,eta)};if(++tick%8==0)counters.forEach{(id,c)->dao.progress(id,c.first.get(),c.second.get())};meters.keys.retainAll(counters.keys)}}
     }
+    private fun recoveredSubtitleWarning(row:DownloadEntity):String? {
+        val options=runCatching{Json.decodeFromString<DownloadOptions>(row.optionsJson)}.getOrNull() ?: return null
+        return "SUBTITLE_DOWNLOAD".takeIf{(options.subtitleId!=null || options.subtitleLanguage!=null) && !subtitles.hasDownload(row.ytId,options.subtitleLanguage)}
+    }
     private suspend fun schedule(rows:List<DownloadEntity>,prefs:Settings):Unit=scheduler.withLock {
         rows.filter{it.state=="QUEUED" && !active.containsKey(it.id)}.take((prefs.maxConcurrentDownloads-active.size).coerceAtLeast(0)).forEach { row->
             if(dao.claimQueued(row.id)==0)return@forEach
@@ -77,12 +81,13 @@ private class StreamExpired:IOException()
             job.start()
         }
     }
-    suspend fun enqueue(videoId:String,height:Int,audioOnly:Boolean,details:VideoDetails?=null,trackId:String?=null,title:String?=null,channel:String="",thumbnail:String=""):Long {
+    suspend fun enqueue(videoId:String,height:Int,audioOnly:Boolean,details:VideoDetails?=null,trackId:String?=null,title:String?=null,channel:String="",thumbnail:String="",subtitle:SubtitleOption?=null,subtitleExplicit:Boolean=false):Long {
         initialize()
         val prefs=preferences.flow.first()
         val track=details?.tracks?.firstOrNull{it.id==trackId} ?: details?.let{AudioTrackSelector.select(it.tracks,prefs.preferredAudioLanguage,prefs.rememberedAudioLanguage ?: dao.channelLanguage(it.channelId),prefs.autoPickDubbed,batch=true).track}
         val chosen=details?.let{StreamPlanner.default(StreamPlanner.options(it,track,audioOnly),height) ?: throw NoStreams()}
-        val options=DownloadOptions(details,track?.id ?: trackId,chosen?.height ?: height,container=chosen?.container.orEmpty(),audioOnly=audioOnly,sponsorBlockCategories=if(prefs.sponsorBlockEnabled)prefs.sponsorBlockCategories else emptySet(),pinnedVideoId=chosen?.video?.id,pinnedAudioId=chosen?.audio?.id,planPinned=chosen!=null,requestedHeight=height,audioLanguage=track?.locale,audioType=track?.type,audioLabel=track?.displayName,requestedAudioLanguage=prefs.rememberedAudioLanguage ?: prefs.preferredAudioLanguage.takeIf{prefs.autoPickDubbed || !prefs.askWhenAlternatives})
+        val subtitleChoice=if(subtitleExplicit)subtitle else subtitle ?: prefs.subtitleLanguage?.let{SubtitlePolicy.select(details?.subtitles.orEmpty(),it)}
+        val options=DownloadOptions(details,track?.id ?: trackId,chosen?.height ?: height,container=chosen?.container.orEmpty(),audioOnly=audioOnly,sponsorBlockCategories=if(prefs.sponsorBlockEnabled)prefs.sponsorBlockCategories else emptySet(),pinnedVideoId=chosen?.video?.id,pinnedAudioId=chosen?.audio?.id,planPinned=chosen!=null,requestedHeight=height,audioLanguage=track?.locale,audioType=track?.type,audioLabel=track?.displayName,subtitleId=subtitleChoice?.id,subtitleLanguage=subtitleChoice?.language ?: prefs.subtitleLanguage.takeUnless{subtitleExplicit},requestedAudioLanguage=prefs.rememberedAudioLanguage ?: prefs.preferredAudioLanguage.takeIf{prefs.autoPickDubbed || !prefs.askWhenAlternatives})
         val id=dao.enqueue(DownloadEntity(ytId=videoId,url=UrlParser.canonical(videoId),title=details?.title ?: title ?: context.getString(con.themralex.astrayt.R.string.pending_video),channelName=details?.channelName ?: channel,thumbnailPath=details?.thumbnail ?: thumbnail,kind=if(audioOnly)"AUDIO"else"VIDEO",optionsJson=Json.encodeToString(options)))
         startService();return id
     }
@@ -98,7 +103,7 @@ private class StreamExpired:IOException()
     suspend fun pause(id:Long)=actions.withLock{stop(id,"PAUSED")}
     suspend fun resume(id:Long)=actions.withLock{initialize();dao.queueIfResumable(id);startService()}
     suspend fun cancel(id:Long)=actions.withLock{stop(id,"CANCELED");File(context.noBackupFilesDir,"dl/$id").deleteRecursively()}
-    suspend fun pauseAll(){dao.allDownloads().filter{it.state in setOf("QUEUED","FETCHING","DOWNLOADING","WAITING_NETWORK","MUXING")}.forEach{pause(it.id)}}
+    suspend fun pauseAll(){dao.allDownloads().filter{it.state in setOf("QUEUED","FETCHING","DOWNLOADING","WAITING_NETWORK","MUXING","SUBTITLES")}.forEach{pause(it.id)}}
     suspend fun resumeAll()=actions.withLock{initialize();dao.allDownloads().filter{it.state in setOf("PAUSED","FAILED","WAITING_NETWORK")}.forEach{dao.queueIfResumable(it.id)};startService()}
     suspend fun prioritize(id:Long)=dao.prioritize(id)
     suspend fun clearFinished()=dao.clearFinished()
@@ -108,7 +113,7 @@ private class StreamExpired:IOException()
         var wake:PowerManager.WakeLock?=null
         try {
             if(storage.recover(row,dir)){
-                dao.progress(row.id,row.bytesTotal,row.bytesTotal);dao.state(row.id,"DONE");dir.deleteRecursively();return
+                dao.progress(row.id,row.bytesTotal,row.bytesTotal);dao.state(row.id,"DONE",recoveredSubtitleWarning(row));dir.deleteRecursively();return
             }
             startService();currentCoroutineContext().ensureActive();dao.runningState(row.id,"FETCHING")
             var options=Json.decodeFromString<DownloadOptions>(row.optionsJson)
@@ -145,6 +150,7 @@ private class StreamExpired:IOException()
             options=options.copy(trackId=options.trackId ?: selected?.id,audioLanguage=options.audioLanguage ?: selected?.locale,audioType=options.audioType ?: selected?.type,audioLabel=options.audioLabel ?: selected?.displayName,pinnedVideoId=plan.video?.id,pinnedAudioId=plan.audio?.id,container=plan.container,height=plan.height,planPinned=true)
             dao.options(row.id,Json.encodeToString(options))
             dao.metadata(row.id,details.title,details.channelName,details.thumbnail)
+            CoroutineScope(currentCoroutineContext()).launch{storage.prefetchArt(details)}
             awaitNetwork(row.id,prefs)
             val lengths=mutableMapOf<String,Long>()
             suspend fun length(key:String,stream:MediaStream):Long {return try {contentLength(row.id,stream.url,stream.headers)}catch(e:StreamExpired){refresh();plan=quality();(if(key=="video")plan.video else plan.audio)?.let{contentLength(row.id,it.url,it.headers)} ?: throw e}}
@@ -253,8 +259,15 @@ private class StreamExpired:IOException()
             }
             state.save();wake?.let{if(it.isHeld)it.release()};wake=null;currentCoroutineContext().ensureActive();dao.runningState(row.id,"MUXING")
             if(dir.usableSpace<total+16L*1024*1024)throw IOException("DISK_FULL")
-            storage.finish(row,options,details,plan,File(dir,"video.part").takeIf{it.exists()},File(dir,"audio.part").takeIf{it.exists()},cuts)
-            dao.progress(row.id,total,total);dao.state(row.id,"DONE");dir.deleteRecursively()
+            val appliedCuts=storage.finish(row,options,details,plan,File(dir,"video.part").takeIf{it.exists()},File(dir,"audio.part").takeIf{it.exists()},cuts)
+            var subtitleError:String?=null
+            if(options.subtitleId!=null || options.subtitleLanguage!=null)try {
+                dao.runningState(row.id,"SUBTITLES")
+                val source=details.subtitles.firstOrNull{it.id==options.subtitleId} ?: options.subtitleLanguage?.let{SubtitlePolicy.select(details.subtitles,it)}
+                if(source==null)throw IOException("SUBTITLE_DOWNLOAD")
+                subtitles.download(row.ytId,source,appliedCuts)
+            }catch(e:CancellationException){throw e}catch(_:Exception){subtitleError="SUBTITLE_DOWNLOAD"}
+            dao.progress(row.id,total,total);dao.state(row.id,"DONE",subtitleError);dir.deleteRecursively()
         }catch(e:TimeoutCancellationException){dao.failUnlessStopped(row.id,"TIMEOUT")}catch(e:CancellationException){throw e}catch(e:Exception){dao.failUnlessStopped(row.id,Errors.code(e))}
         finally {withContext(NonCancellable){
             if(dir.exists()){

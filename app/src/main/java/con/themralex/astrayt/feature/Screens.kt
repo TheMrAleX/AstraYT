@@ -99,6 +99,7 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                 GlassCard {
                     Text(stringResource(R.string.options),color=c.text,style=SingularityTheme.type.title)
                     SegmentedToggle(listOf(stringResource(R.string.video),stringResource(R.string.audio)),if(state.audioOnly)1 else 0,{model.kind(it==1)})
+                    if(details!=null)CaptureSubtitles(details,state,model)
                     SectionHeader(stringResource(R.string.audio))
                     if(state.audioOnly && selected?.extractAudio==true)Text(stringResource(R.string.embedded_audio),color=c.mid,style=SingularityTheme.type.body)
                     else if(details==null || details.tracks.isEmpty())Text(stringResource(R.string.resolve_in_queue),color=c.mid,style=SingularityTheme.type.body)
@@ -168,7 +169,7 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                 Text(stringResource(R.string.queue_subtitle),color=c.mid,style=SingularityTheme.type.body)
             }
             if(rows.isNotEmpty()){
-                val active=rows.count{it.state in setOf("FETCHING","DOWNLOADING","MUXING")}
+                val active=rows.count{it.state in setOf("FETCHING","DOWNLOADING","MUXING","SUBTITLES")}
                 Row(Modifier.fillMaxWidth().heightIn(min=40.dp),verticalAlignment=Alignment.CenterVertically){
                     Text(pluralStringResource(R.plurals.queue_activity,active,active,Formatters.bytes(progress.values.sumOf{it.speed})),color=c.accent,style=SingularityTheme.type.label.copy(fontFeatureSettings="tnum"),maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
@@ -177,7 +178,7 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
         }
         if(rows.isEmpty())EmptyState(stringResource(R.string.empty_queue),stringResource(R.string.empty_queue_body))
         LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(vertical=16.dp)) {
-            val groups=listOf("DOWNLOADING","FETCHING","MUXING","QUEUED","WAITING_NETWORK","PAUSED","FAILED","DONE","CANCELED")
+            val groups=listOf("DOWNLOADING","FETCHING","MUXING","SUBTITLES","QUEUED","WAITING_NETWORK","PAUSED","FAILED","DONE","CANCELED")
             groups.forEach { group->val entries=rows.filter{it.state==group};if(entries.isNotEmpty()) {
                 item(key="section-$group",contentType="header"){if(group=="DONE")SettingsRow(Icons.Rounded.DoneAll,stringResource(R.string.done),value=entries.size.toString(),onClick={completedExpanded=!completedExpanded})else SectionHeader(stringResource(stateResource(group)))}
                 if(group!="DONE" || completedExpanded)items(entries,key={it.id},contentType={"download"}){row->
@@ -209,10 +210,11 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                                 Text(stringResource(stateResource(row.state)),color=statusColor,style=SingularityTheme.type.label,modifier=Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis)
                                 if(row.state in setOf("DOWNLOADING","PAUSED"))Text("${(fraction*100).toInt()} %",color=c.text,style=SingularityTheme.type.label.copy(fontFeatureSettings="tnum"))
                             }
-                            if(row.state in setOf("FETCHING","MUXING","WAITING_NETWORK"))QueueActivityLine()else AccretionProgressBar(if(row.state=="DONE")1f else fraction,height=3.dp)
+                            if(row.state in setOf("FETCHING","MUXING","SUBTITLES","WAITING_NETWORK"))QueueActivityLine()else AccretionProgressBar(if(row.state=="DONE")1f else fraction,height=3.dp)
                             val done=p?.done ?: row.bytesDone;val total=p?.total ?: row.bytesTotal
                             Box(Modifier.fillMaxWidth().heightIn(min=48.dp).then(if(row.id in pending)Modifier.clickable(role=Role.Button){model.undoCancel(row.id)}else Modifier),contentAlignment=Alignment.CenterStart) {
                                 if(row.id in pending)Text(stringResource(R.string.cancel_pending)+"\n"+stringResource(R.string.undo),color=c.accent,style=SingularityTheme.type.caption,minLines=2,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                else if(row.state=="DONE" && row.errorCode=="SUBTITLE_DOWNLOAD")Text(stringResource(R.string.subtitle_failed),color=c.warning,style=SingularityTheme.type.caption,minLines=2,maxLines=2,overflow=TextOverflow.Ellipsis)
                                 else if(row.state=="FAILED")Text(stringResource(Errors.string(row.errorCode)),color=c.error,style=SingularityTheme.type.caption,minLines=2,maxLines=2,overflow=TextOverflow.Ellipsis)
                                 else Column {
                                     Text(if(total>0)"${Formatters.bytes(done)} / ${Formatters.bytes(total)}"else Formatters.bytes(done),color=c.low,style=SingularityTheme.type.caption.copy(fontFeatureSettings="tnum"),maxLines=1,overflow=TextOverflow.Ellipsis)
@@ -230,8 +232,8 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
     }
     menu?.let{row->SingularitySheet({menu=null}){val context=LocalContext.current;if(row.state=="DONE")SingularityButton(stringResource(R.string.play),{onPlayDownload(row.id);menu=null});SingularityButton(stringResource(R.string.copy_link),{context.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("YouTube",row.url));menu=null},variant="secondary");SingularityButton(stringResource(R.string.open_youtube),{external(context,row.url);menu=null},variant="secondary");if(row.state in setOf("DONE","CANCELED"))SingularityButton(stringResource(R.string.clear_done),{model.clear();menu=null},variant="secondary")else {SingularityButton(stringResource(if(row.state in setOf("PAUSED","FAILED"))R.string.resume else R.string.pause),{if(row.state in setOf("PAUSED","FAILED"))model.resume(row.id)else model.pause(row.id);menu=null});SingularityButton(stringResource(R.string.priority),{model.priority(row.id);menu=null},variant="secondary");SingularityButton(stringResource(R.string.cancel),{model.cancel(row.id);menu=null},variant="tertiary")}}}
 }
-fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNLOADING"->R.string.downloading;"MUXING"->R.string.muxing;"WAITING_NETWORK"->R.string.waiting_network;"PAUSED"->R.string.paused;"DONE"->R.string.done;"FAILED"->R.string.failed;"CANCELED"->R.string.canceled;else->R.string.queued}
-@Composable fun LibraryScreen(model:LibraryModel,onPlay:(VideoEntity,List<VideoEntity>,Boolean)->Unit,onCapture:()->Unit,onChannel:(String)->Unit) {
+fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNLOADING"->R.string.downloading;"MUXING"->R.string.muxing;"SUBTITLES"->R.string.subtitle_downloading;"WAITING_NETWORK"->R.string.waiting_network;"PAUSED"->R.string.paused;"DONE"->R.string.done;"FAILED"->R.string.failed;"CANCELED"->R.string.canceled;else->R.string.queued}
+@Composable fun LibraryScreen(model:LibraryModel,extras:VideoExtrasModel,onPlay:(VideoEntity,List<VideoEntity>,Boolean)->Unit,onCapture:()->Unit,onChannel:(String)->Unit) {
     val search by model.search.collectAsStateWithLifecycle()
     val all by model.all.collectAsStateWithLifecycle()
     val recentSearches by model.recent.collectAsStateWithLifecycle()
@@ -301,7 +303,7 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
         }
     }
     if(sorting)SingularitySheet({sorting=false}){listOf(R.string.recent,R.string.title,R.string.duration,R.string.size,R.string.channel).forEachIndexed{i,id->SingularityButton(stringResource(id),{sort=i;sorting=false},variant=if(i==sort)"primary"else"secondary")}}
-    menu?.let{v->SingularitySheet({menu=null}){listOf(R.string.play,R.string.audio_only,R.string.share,R.string.open_youtube,R.string.channel,R.string.delete).forEach{id->SingularityButton(stringResource(id),{when(id){R.string.play,R.string.audio_only->onPlay(v,all,id==R.string.audio_only);R.string.share->share(context,listOf(v));R.string.open_youtube->external(context,UrlParser.canonical(v.ytId));R.string.channel->onChannel(v.channelId);R.string.delete->deleting=listOf(v)};menu=null},variant="secondary")}}}
+    menu?.let{v->SingularitySheet({menu=null}){SheetHeading(stringResource(R.string.options),{menu=null});Text(v.title,color=c.mid,style=SingularityTheme.type.caption,maxLines=2);listOf(R.string.play,R.string.audio_only,R.string.share,R.string.open_youtube,R.string.channel,R.string.metadata_download,R.string.subtitle_download,R.string.delete).forEach{id->OptionRow(when(id){R.string.play->Icons.Rounded.PlayArrow;R.string.audio_only->Icons.Rounded.Headphones;R.string.share->Icons.Rounded.Share;R.string.open_youtube->Icons.Rounded.OpenInNew;R.string.channel->Icons.Rounded.Person;R.string.metadata_download->Icons.Rounded.Refresh;R.string.subtitle_download->Icons.Rounded.ClosedCaption;else->Icons.Rounded.DeleteOutline},stringResource(id),{when(id){R.string.play,R.string.audio_only->onPlay(v,all,id==R.string.audio_only);R.string.share->share(context,listOf(v));R.string.open_youtube->external(context,UrlParser.canonical(v.ytId));R.string.channel->onChannel(v.channelId);R.string.metadata_download->extras.refreshMetadata(v);R.string.subtitle_download->extras.openSubtitles(v);R.string.delete->deleting=listOf(v)};menu=null})}}}
     if(deleting.isNotEmpty())SingularityDialog(stringResource(R.string.delete),stringResource(R.string.delete_question),stringResource(R.string.delete),stringResource(R.string.cancel),{deleting.forEach{model.delete(it)};selected=selected-deleting.map{it.id}.toSet();deleting=emptyList()},{deleting=emptyList()})
 }
 @Composable fun ChannelScreen(id:String,all:List<VideoEntity>,onPlay:(VideoEntity,List<VideoEntity>)->Unit) {

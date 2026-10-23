@@ -80,7 +80,16 @@ internal class InnertubeFallback(private val client:OkHttpClient,private val tra
             if(videos.isEmpty() && tracks.isEmpty())throw NoStreams()
             val thumbs=v.obj("thumbnail")["thumbnails"] as? JsonArray
             val base=metadata ?: VideoDetails(id,v.text("title"),"https://www.youtube.com/channel/${v.text("channelId")}",v.text("author"),"",(thumbs?.lastOrNull() as? JsonObject)?.text("url").orEmpty(),v.number("lengthSeconds")*1000,v.number("viewCount"),0,v.text("shortDescription").take(2000),emptyList(),emptyList())
-            return base.copy(videos=videos,tracks=tracks,fetchedAt=System.currentTimeMillis())
+            val subtitles=response.obj("captions").obj("playerCaptionsTracklistRenderer")["captionTracks"] as? JsonArray
+            val captions=subtitles.orEmpty().mapNotNull { element->
+                val item=element as? JsonObject ?: return@mapNotNull null
+                val language=item.text("languageCode");val url=item.text("baseUrl")
+                if(language.isBlank() || url.isBlank())return@mapNotNull null
+                val auto=item.text("kind")=="asr" || item.text("vssId").startsWith("a.")
+                val label=item.obj("name").text("simpleText").ifBlank{language}
+                SubtitleOption(language+if(auto)":auto"else":manual",language,label,url,auto)
+            }
+            return base.copy(videos=videos,tracks=tracks,subtitles=(base.subtitles+captions).distinctBy{it.id},fetchedAt=System.currentTimeMillis())
         }
         private fun JsonObject.obj(key:String)=this[key] as? JsonObject ?: JsonObject(emptyMap())
         private fun JsonObject.text(key:String)=(this[key] as? JsonPrimitive)?.contentOrNull.orEmpty()

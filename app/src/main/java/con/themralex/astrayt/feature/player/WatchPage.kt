@@ -33,7 +33,7 @@ import con.themralex.astrayt.data.db.VideoEntity
 import con.themralex.astrayt.feature.*
 import coil3.compose.AsyncImage
 
-@Composable internal fun WatchPage(video:VideoEntity,audioOnly:Boolean,all:List<VideoEntity>,autoplay:Boolean,onAutoplay:(Boolean)->Unit,onChannel:(String)->Unit,onAudio:()->Unit,onPlay:(VideoEntity)->Unit,listState:LazyListState,expanded:Boolean,onExpand:()->Unit,modifier:Modifier=Modifier) {
+@Composable internal fun WatchPage(video:VideoEntity,refreshing:Boolean,onMetadata:()->Unit,onSubtitles:()->Unit,audioOnly:Boolean,all:List<VideoEntity>,autoplay:Boolean,onAutoplay:(Boolean)->Unit,onChannel:(String)->Unit,onAudio:()->Unit,onPlay:(VideoEntity)->Unit,listState:LazyListState,expanded:Boolean,onExpand:()->Unit,modifier:Modifier=Modifier) {
     val c=SingularityTheme.colors;val context=LocalContext.current;val motion=SingularityTheme.motion.enabled
     val related=remember(all,video.id){all.filter{it.id!=video.id}.sortedBy{it.channelId!=video.channelId}.take(30)}
     val channelCount=remember(all,video.channelId){all.count{it.channelId==video.channelId}}
@@ -69,11 +69,13 @@ import coil3.compose.AsyncImage
                 if(video.likeCount>=0)WatchAction(Icons.Rounded.ThumbUp,stringResource(R.string.likes_text,Formatters.views(video.likeCount)),null)
                 WatchAction(Icons.Rounded.Share,stringResource(R.string.share),{share(context,listOf(video))})
                 if(video.kind=="VIDEO")WatchAction(if(audioOnly)Icons.Rounded.Videocam else Icons.Rounded.Headphones,stringResource(if(audioOnly)R.string.show_video else R.string.audio_only),onAudio,audioOnly)
+                WatchAction(Icons.Rounded.ClosedCaption,stringResource(R.string.subtitle_download),onSubtitles)
+                WatchAction(Icons.Rounded.Refresh,stringResource(if(refreshing)R.string.metadata_loading else R.string.metadata_download),if(refreshing)null else onMetadata)
                 WatchAction(Icons.Rounded.OpenInNew,stringResource(R.string.open_youtube),{external(context,"https://www.youtube.com/watch?v=${video.ytId}")})
             }
         }
         if(video.description.isNotBlank() || video.removedDurationMs>0)item(key="description",contentType="description") {
-            Column(Modifier.padding(horizontal=16.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.high).animateContentSize(tween(if(motion)200 else 0)).padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.padding(horizontal=16.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.surface).border(1.dp,c.hairline,RoundedCornerShape(14.dp)).animateContentSize(tween(if(motion)200 else 0)).padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                 if(video.removedDurationMs>0)Text(stringResource(R.string.segments_removed,Formatters.duration(video.removedDurationMs)),color=c.accent,style=SingularityTheme.type.caption)
                 if(video.description.isNotBlank()) {
                     FormattedDescription(video.description,expanded)
@@ -108,7 +110,7 @@ import coil3.compose.AsyncImage
 
 @Composable private fun WatchAction(icon:ImageVector,label:String,onClick:(()->Unit)?,active:Boolean=false) {
     val c=SingularityTheme.colors
-    Row(Modifier.heightIn(min=48.dp).clip(RoundedCornerShape(24.dp)).background(if(active)c.accent.copy(alpha=.18f)else c.high)
+    Row(Modifier.heightIn(min=48.dp).clip(RoundedCornerShape(12.dp)).background(if(active)c.accent.copy(alpha=.18f)else c.high)
         .then(if(onClick!=null)Modifier.semantics{selected=active}.clickable(role=Role.Button,onClick=onClick)else Modifier).padding(horizontal=14.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
         Icon(icon,null,tint=if(active)c.accent else c.text,modifier=Modifier.size(18.dp))
         Text(label,color=if(active)c.accent else c.text,style=SingularityTheme.type.label)

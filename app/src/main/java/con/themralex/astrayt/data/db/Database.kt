@@ -18,6 +18,8 @@ data class DownloadEntity(@PrimaryKey(autoGenerate=true)val id: Long=0,val ytId:
     @Query("SELECT * FROM videos WHERE id=:id") suspend fun video(id: Long):VideoEntity?
     @Query("SELECT * FROM videos") suspend fun allVideos():List<VideoEntity>
     @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun insertVideo(video: VideoEntity):Long
+    @Query("UPDATE videos SET title=:title,channelId=:channelId,channelName=:channel,description=:description,viewCount=:views,uploadDateMs=:date,likeCount=:likes,thumbnailPath=:thumbnail,channelAvatarPath=:avatar,dominantColor=:color WHERE id=:id")
+    suspend fun patchMetadata(id:Long,title:String,channelId:String,channel:String,description:String,views:Long,date:Long,likes:Long,thumbnail:String,avatar:String,color:Int)
     @Query("DELETE FROM videos WHERE id=:id") suspend fun deleteVideo(id: Long)
     @Query("UPDATE videos SET positionMs=:position,lastPlayedAtMs=:now WHERE id=:id") suspend fun position(id: Long,position: Long,now: Long=System.currentTimeMillis())
     @Query("SELECT * FROM downloads ORDER BY priority DESC,createdAtMs ASC") fun downloads():Flow<List<DownloadEntity>>
@@ -35,7 +37,7 @@ data class DownloadEntity(@PrimaryKey(autoGenerate=true)val id: Long=0,val ytId:
     @Query("UPDATE downloads SET bytesDone=:done,bytesTotal=:total,updatedAtMs=:now WHERE id=:id") suspend fun progress(id: Long,done: Long,total: Long,now: Long=System.currentTimeMillis())
     @Query("UPDATE downloads SET priority=(SELECT COALESCE(MAX(priority),0)+1 FROM downloads) WHERE id=:id") suspend fun prioritize(id: Long)
     @Query("DELETE FROM downloads WHERE state IN ('DONE','CANCELED')") suspend fun clearFinished()
-    @Query("UPDATE downloads SET state='PAUSED' WHERE state IN ('QUEUED','FETCHING','DOWNLOADING','MUXING','WAITING_NETWORK')") suspend fun pauseInterrupted()
+    @Query("UPDATE downloads SET state='PAUSED' WHERE state IN ('QUEUED','FETCHING','DOWNLOADING','MUXING','SUBTITLES','WAITING_NETWORK')") suspend fun pauseInterrupted()
     @Query("SELECT * FROM channel_audio_pref") fun channels():Flow<List<ChannelAudioPref>>
     @Query("SELECT languageTag FROM channel_audio_pref WHERE channelId=:id") suspend fun channelLanguage(id: String):String?
     @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun remember(pref: ChannelAudioPref)

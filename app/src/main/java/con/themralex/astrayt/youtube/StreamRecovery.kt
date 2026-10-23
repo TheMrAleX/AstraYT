@@ -28,6 +28,6 @@ internal object StreamRecovery {
                 tracks[match]=old.copy(locale=old.locale.ifBlank{candidate.locale},type=if(old.type=="UNKNOWN")candidate.type else old.type,displayName=old.displayName.ifBlank{candidate.displayName},streams=(candidate.streams+old.streams).distinctBy{it.id},default=old.default || candidate.default)
             }
         }
-        return primary.copy(videos=(alternate.videos+primary.videos).distinctBy{Triple(it.id,it.height,it.videoOnly)},tracks=tracks,fetchedAt=alternate.fetchedAt)
+        return primary.copy(videos=(alternate.videos+primary.videos).distinctBy{Triple(it.id,it.height,it.videoOnly)},tracks=tracks,subtitles=(primary.subtitles+alternate.subtitles).distinctBy{it.id},fetchedAt=alternate.fetchedAt)
     }
 }

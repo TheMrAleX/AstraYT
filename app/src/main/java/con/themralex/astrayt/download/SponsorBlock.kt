@@ -7,7 +7,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.io.IOException
 
 /** Microsecond timeline shared by video and audio; unknown/invalid intervals are discarded. */
-data class Cut(val startUs:Long,val endUs:Long)
+@kotlinx.serialization.Serializable data class Cut(val startUs:Long,val endUs:Long)
 object CutTimeline {
     fun normalize(cuts:List<Cut>,durationUs:Long):List<Cut> {
         val result=mutableListOf<Cut>()

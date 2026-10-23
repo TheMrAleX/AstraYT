@@ -203,7 +203,7 @@ import kotlin.random.Random
 @Composable fun SingularitySheet(onDismiss: ()->Unit,content: @Composable ColumnScope.()->Unit) {
     val c=SingularityTheme.colors
     Dialog(onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false)){BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.72f)).clickable(onClick=onDismiss),contentAlignment=Alignment.BottomCenter){
-        Column(Modifier.widthIn(max=600.dp).fillMaxWidth().heightIn(max=maxHeight*.9f).clip(RoundedCornerShape(topStart=24.dp,topEnd=24.dp)).background(c.surface).clickable(interactionSource=remember{MutableInteractionSource()},indication=null){}.verticalScroll(rememberScrollState()).padding(24.dp).navigationBarsPadding(),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.widthIn(max=560.dp).fillMaxWidth().heightIn(max=maxHeight*.9f).clip(RoundedCornerShape(topStart=24.dp,topEnd=24.dp)).background(c.surface).clickable(interactionSource=remember{MutableInteractionSource()},indication=null){}.verticalScroll(rememberScrollState()).padding(20.dp).navigationBarsPadding(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Box(Modifier.align(Alignment.CenterHorizontally).padding(bottom=12.dp).size(32.dp,3.dp).background(c.low,RoundedCornerShape(2.dp)));content()
         }
     }}
@@ -252,7 +252,10 @@ import kotlin.random.Random
     Row(Modifier.fillMaxWidth().heightIn(min=64.dp).clip(RoundedCornerShape(10.dp)).then(if(onClick!=null)Modifier.clickable(onClick=onClick)else Modifier).padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(14.dp)) {
         Icon(icon,null,tint=c.mid,modifier=Modifier.size(22.dp))
         Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)){Text(title,color=c.text,style=SingularityTheme.type.body);if(subtitle.isNotEmpty())Text(subtitle,color=c.low,style=SingularityTheme.type.caption)}
-        if(trailing!=null)trailing() else Column(horizontalAlignment=Alignment.End,modifier=Modifier.widthIn(max=110.dp)) {if(value.isNotBlank())Text(value,color=c.mid,style=SingularityTheme.type.label,textAlign=TextAlign.End);if(onClick!=null)Icon(Icons.Rounded.ChevronRight,null,tint=c.low,modifier=Modifier.size(18.dp))}
+        if(trailing!=null)trailing() else Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            if(value.isNotBlank())Text(value,color=c.mid,style=SingularityTheme.type.label,textAlign=TextAlign.End,modifier=Modifier.widthIn(max=110.dp))
+            if(onClick!=null)Icon(Icons.Rounded.ChevronRight,null,tint=c.low,modifier=Modifier.size(18.dp))
+        }
     }
 }
 

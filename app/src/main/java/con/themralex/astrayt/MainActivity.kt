@@ -61,14 +61,14 @@ import javax.inject.Inject
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode:Boolean,newConfig:Configuration){super.onPictureInPictureModeChanged(isInPictureInPictureMode,newConfig);pip=isInPictureInPictureMode}
 }
 @Composable private fun AstraApp(shared:String,requestedScreen:String,downloadedId:Long,pip:Boolean,onConsumed:()->Unit,onPlayerVisible:(Boolean)->Unit) {
-    val main:MainModel=viewModel();val capture:CaptureModel=viewModel();val queue:QueueModel=viewModel();val library:LibraryModel=viewModel();val settings:SettingsModel=viewModel()
+    val main:MainModel=viewModel();val capture:CaptureModel=viewModel();val queue:QueueModel=viewModel();val library:LibraryModel=viewModel();val settings:SettingsModel=viewModel();val extras:VideoExtrasModel=viewModel()
     val prefs by settings.state.collectAsStateWithLifecycle();val all by library.all.collectAsStateWithLifecycle();val playing by main.playback.state.collectAsStateWithLifecycle();val update by settings.update.collectAsStateWithLifecycle()
     val context=LocalContext.current;val nav=rememberNavController();val entry by nav.currentBackStackEntryAsState();val destination=entry?.destination
     val isPlayer=destination?.hasRoute<PlayerRoute>()==true
     var toast by remember{mutableStateOf<Int?>(null)}
     LaunchedEffect(prefs.autoplayNext){main.playback.refreshAutoplay()}
     LaunchedEffect(isPlayer){onPlayerVisible(isPlayer)}
-    LaunchedEffect(Unit){listOf(main,capture,queue,library,settings).forEach{model->launch{model.effects.receiveAsFlow().collect{toast=it}}}}
+    LaunchedEffect(Unit){listOf(main,capture,queue,library,settings,extras).forEach{model->launch{model.effects.receiveAsFlow().collect{toast=it}}}}
     LaunchedEffect(toast){if(toast!=null){delay(3500);toast=null}}
     LaunchedEffect(shared,requestedScreen,downloadedId,prefs.onboardingDone){if(prefs.onboardingDone){if(shared.isNotBlank()){capture.input(shared,true)}else if(requestedScreen=="queue")nav.navigate(Queue){launchSingleTop=true}else if(requestedScreen=="player" && downloadedId>=0){main.playDownloaded(downloadedId);nav.navigate(PlayerRoute){launchSingleTop=true}};if(shared.isNotBlank() || requestedScreen.isNotBlank())onConsumed()}}
     val manager=remember{context.getSystemService(PowerManager::class.java)}
@@ -83,7 +83,7 @@ import javax.inject.Inject
                     NavHost(navController=nav,startDestination=Capture,modifier=Modifier.fillMaxSize(),enterTransition={fadeIn(tween(if(animations)180 else 0))},exitTransition={fadeOut(tween(if(animations)140 else 0))},popEnterTransition={fadeIn(tween(if(animations)220 else 0))}) {
                         composable<Capture>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){CaptureScreen(capture,prefs,all,{v->main.play(v,all);nav.navigate(PlayerRoute){launchSingleTop=true}})}}
                         composable<Queue>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){QueueScreen(queue){id->main.playDownloaded(id);nav.navigate(PlayerRoute){launchSingleTop=true}}}}
-                        composable<Library>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){LibraryScreen(library,{v,list,audio->main.play(v,list,audio);nav.navigate(PlayerRoute){launchSingleTop=true}},{nav.navigate(Capture)},{id->nav.navigate(ChannelRoute(id))})}}
+                        composable<Library>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){LibraryScreen(library,extras,{v,list,audio->main.play(v,list,audio);nav.navigate(PlayerRoute){launchSingleTop=true}},{nav.navigate(Capture)},{id->nav.navigate(ChannelRoute(id))})}}
                         composable<SettingsRoute>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){SettingsScreen(settings,all)}}
                         composable<ChannelRoute>{backStack->Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){ChannelScreen(backStack.toRoute<ChannelRoute>().id,all,{v,list->main.play(v,list);nav.navigate(PlayerRoute){launchSingleTop=true}})}}
                         composable<PlayerRoute>(
@@ -91,7 +91,7 @@ import javax.inject.Inject
                             exitTransition={fadeOut(tween(if(animations)180 else 0))},
                             popEnterTransition={fadeIn(tween(if(animations)220 else 0))},
                             popExitTransition={slideOutVertically(tween(if(animations)260 else 0,easing=FastOutLinearInEasing)){it/8}+fadeOut(tween(if(animations)200 else 0))}
-                        ){PlayerScreen(main,playing,all,prefs,{value->settings.change{it.copy(autoplayNext=value)}},{id->nav.navigate(ChannelRoute(id))},{nav.popBackStack()},{video->main.close();library.delete(video)},pip,isPlayer)}
+                        ){PlayerScreen(main,extras,playing,all,prefs,{value->settings.change{it.copy(autoplayNext=value)}},{id->nav.navigate(ChannelRoute(id))},{nav.popBackStack()},{video->main.close();library.delete(video)},pip,isPlayer)}
                     }
                 AnimatedVisibility(visible=!isPlayer && !pip,modifier=Modifier.align(Alignment.BottomCenter),enter=fadeIn(tween(if(animations)180 else 0))+slideInVertically(tween(if(animations)220 else 0)){it/5},exit=fadeOut(tween(if(animations)100 else 0))) {
                 Column(Modifier.fillMaxWidth().onSizeChanged{dockHeight=with(density){it.height.toDp()}}.background(SingularityTheme.colors.void).navigationBarsPadding().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -104,6 +104,7 @@ import javax.inject.Inject
                 }
             }
             if(prefs.onboardingDone && !pip)CaptureModal(capture,prefs)
+            if(prefs.onboardingDone && !pip)VideoExtrasHost(extras)
             if(prefs.onboardingDone)UpdateHost(settings,eligible=!pip)
             toast?.let{Toast(stringResource(it),Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start=16.dp,end=16.dp,bottom=if(isPlayer)24.dp else 104.dp))}
         }

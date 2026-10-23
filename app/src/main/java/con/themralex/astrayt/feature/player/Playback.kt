@@ -21,7 +21,7 @@ import kotlin.coroutines.resumeWithException
 data class PlayerTrack(val group:TrackGroup,val index:Int,val displayName:String,val selected:Boolean,val type:Int)
 data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,val buffering:Boolean=false,val position:Long=0,val duration:Long=0,val buffered:Long=0,val speed:Float=1f,val audioOnly:Boolean=false,val audioTracks:List<PlayerTrack> = emptyList(),val subtitleTracks:List<PlayerTrack> = emptyList(),val ended:Boolean=false,val errorCode:Int?=null,val hasPrevious:Boolean=false,val hasNext:Boolean=false,val playWhenReady:Boolean=false)
 @androidx.annotation.OptIn(markerClass=[androidx.media3.common.util.UnstableApi::class])
-@Singleton class Playback @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val preferences:Preferences) {
+@Singleton class Playback @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val preferences:Preferences,private val subtitles:con.themralex.astrayt.download.SubtitleDownloads) {
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate+CoroutineExceptionHandler{_,_->})
     private val mutex=Mutex()
     private val selection=Mutex()
@@ -109,10 +109,29 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
         media.trackSelectionParameters=media.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT,false).setSelectUndeterminedTextLanguage(true).build()
     }
     private suspend fun savedSubtitles(video:VideoEntity):List<MediaItem.SubtitleConfiguration> = withContext(Dispatchers.IO) {
-        File(context.filesDir,"subtitles/${video.ytId}").listFiles()?.sortedBy{it.name}?.mapNotNull { file->
-            val mime=SubtitleFiles.mimeType(file.name) ?: return@mapNotNull null
-            MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(file)).setMimeType(mime).setLabel(file.name.substringAfter('-')).build()
+        File(context.filesDir,"subtitles/${video.ytId}").listFiles()?.filter{it.isFile && SubtitleFiles.mimeType(it.name)!=null}?.sortedByDescending{it.lastModified()}?.mapIndexedNotNull { position,file->
+            val mime=SubtitleFiles.mimeType(file.name) ?: return@mapIndexedNotNull null
+            val downloaded=file.name.startsWith("download-")
+            val language=if(downloaded)file.name.removePrefix("download-").substringBeforeLast('-')else null
+            val label=if(language!=null)Locale.forLanguageTag(language).displayName+if(file.name.endsWith("-auto.srt"))" · "+context.getString(R.string.subtitle_automatic)else ""else file.name.substringAfter('-')
+            MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(file)).setMimeType(mime).setSelectionFlags(if(position==0)C.SELECTION_FLAG_DEFAULT else 0).setLabel(label).apply{if(language!=null)setLanguage(language)}.build()
         }.orEmpty()
+    }
+    suspend fun refreshMetadata(id:Long){
+        val updated=dao.video(id) ?: return
+        playlist=playlist.map{if(it.id==id)updated else it}
+        if(_state.value.video?.id==id)_state.value=_state.value.copy(video=updated.copy(positionMs=_state.value.position))
+    }
+    suspend fun reloadSubtitles(id:Long)=selection.withLock {
+        val media=controller ?: return@withLock
+        val video=state.value.video?.takeIf{it.id==id} ?: return@withLock
+        val config=savedSubtitles(video)
+        if(media.currentMediaItem?.mediaId!=id.toString())return@withLock
+        val position=media.currentPosition;val playing=media.playWhenReady
+        val item=media.currentMediaItem ?: return@withLock
+        media.replaceMediaItem(media.currentMediaItemIndex,item.buildUpon().setSubtitleConfigurations(config).build())
+        media.seekTo(position);media.prepare();media.playWhenReady=playing
+        media.trackSelectionParameters=media.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT,false).setSelectUndeterminedTextLanguage(true).build()
     }
     suspend fun play(video:VideoEntity,all:List<VideoEntity> = listOf(video),audioOnly:Boolean=false)=selection.withLock {
         val previous=_state.value
@@ -159,5 +178,6 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
     fun speed(value:Float){controller?.setPlaybackSpeed(value.coerceIn(.25f,2f))}
     fun next(){val index=playlist.indexOfFirst{it.id==state.value.video?.id};playlist.getOrNull(index+1)?.let{next->scope.launch{play(next,playlist,audioPreference)}}}
     fun previous(){if((controller?.currentPosition ?: state.value.position)>3000){seek(0);return};val index=playlist.indexOfFirst{it.id==state.value.video?.id};val previous=playlist.getOrNull(index-1);if(previous!=null)scope.launch{play(previous,playlist,audioPreference)}else seek(0)}
+    init{scope.launch{subtitles.changes.collect{ytId->state.value.video?.takeIf{it.ytId==ytId}?.let{reloadSubtitles(it.id)}}}}
     suspend fun save(){_state.value.video?.let{dao.position(it.id,state.value.position)}}
 }
