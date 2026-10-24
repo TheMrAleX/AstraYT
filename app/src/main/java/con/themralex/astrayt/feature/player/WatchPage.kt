@@ -33,7 +33,7 @@ import con.themralex.astrayt.data.db.VideoEntity
 import con.themralex.astrayt.feature.*
 import coil3.compose.AsyncImage
 
-@Composable internal fun WatchPage(video:VideoEntity,refreshing:Boolean,onMetadata:()->Unit,onSubtitles:()->Unit,audioOnly:Boolean,all:List<VideoEntity>,autoplay:Boolean,onAutoplay:(Boolean)->Unit,onChannel:(String)->Unit,onAudio:()->Unit,onPlay:(VideoEntity)->Unit,listState:LazyListState,expanded:Boolean,onExpand:()->Unit,modifier:Modifier=Modifier) {
+@Composable internal fun WatchPage(video:VideoEntity,refreshing:Boolean,onMetadata:()->Unit,onSubtitles:()->Unit,audioOnly:Boolean,all:List<VideoEntity>,autoplay:Boolean,onAutoplay:(Boolean)->Unit,onChannel:(String)->Unit,onAudio:()->Unit,onPlay:(VideoEntity)->Unit,listState:LazyListState,expanded:Boolean,onExpand:()->Unit,modifier:Modifier=Modifier,playbackControls:@Composable ()->Unit={}) {
     val c=SingularityTheme.colors;val context=LocalContext.current;val motion=SingularityTheme.motion.enabled
     val related=remember(all,video.id){all.filter{it.id!=video.id}.sortedBy{it.channelId!=video.channelId}.take(30)}
     val channelCount=remember(all,video.channelId){all.count{it.channelId==video.channelId}}
@@ -54,6 +54,7 @@ import coil3.compose.AsyncImage
                 }
             }
         }
+        item(key="playback-controls",contentType="playback-controls") { playbackControls() }
         item(key="channel",contentType="channel") {
             Row(Modifier.fillMaxWidth().clickable(role=Role.Button){onChannel(video.channelId)}.padding(horizontal=16.dp,vertical=2.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                 AsyncImage(video.channelAvatarPath,null,Modifier.size(42.dp).clip(CircleShape).background(c.high),contentScale=ContentScale.Crop)

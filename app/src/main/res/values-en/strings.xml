@@ -287,4 +287,12 @@
     <string name="subtitle_export">Save SRT</string>
     <string name="subtitle_exported">SRT copy saved</string>
     <string name="subtitle_timeline_missing">The cut timeline for this older video was not saved. Download the video again with subtitles to keep them synchronized.</string>
+    <string name="settings_personal">Your experience</string>
+    <string name="settings_manage">Downloads and storage</string>
+    <string name="settings_appearance_summary">Color, pure black and motion</string>
+    <string name="settings_downloads_summary">%1$s · %2$d simultaneous downloads</string>
+    <string name="settings_library_size">%1$s in your library</string>
+    <string name="settings_cuts_on">Trimming enabled</string>
+    <string name="settings_cuts_off">No automatic trimming</string>
+    <string name="player_no_audio_tracks">This file has no available audio tracks.</string>
 </resources>

@@ -105,57 +105,35 @@ import kotlinx.coroutines.delay
                 AsyncImage(video.thumbnailPath,null,Modifier.fillMaxSize().padding(if(immersive)48.dp else 20.dp).clip(RoundedCornerShape(16.dp)),contentScale=androidx.compose.ui.layout.ContentScale.Fit)
             }else PlayerSurface(playback,state,active,fill,Modifier.fillMaxSize())
             if(!pip)key(video.id){ArcaGestureLayer(playback,state,locked,{controls=!controls;interact()},{controls=false;interact()},immersive,onBack,{dragOffset=it},Modifier.fillMaxSize())}
-            if(locked && controls && !pip)PlayerIcon(Icons.Rounded.Lock,stringResource(R.string.screen_unlock),{locked=false;interact()},Modifier.align(Alignment.CenterEnd).padding(end=12.dp).background(Color.Black.copy(alpha=.65f),CircleShape))
+            if(locked && controls && !pip)PlayerGlassIcon(Icons.Rounded.Lock,stringResource(R.string.screen_unlock),{locked=false;interact()},Modifier.align(Alignment.CenterEnd).padding(end=12.dp).background(Color.Black.copy(alpha=.65f),CircleShape))
             if(state.buffering && !controls && state.errorCode==null && !pip)Box(Modifier.align(Alignment.Center).size(64.dp).background(Color.Black.copy(alpha=.5f),CircleShape),contentAlignment=Alignment.Center){AccretionRing(0f,40.dp,"indeterminate")}
-            if(state.errorCode!=null && !pip)PlayerIcon(Icons.Rounded.KeyboardArrowDown,stringResource(R.string.player_minimize),{if(immersive)leaveFullscreen()else onBack()},Modifier.align(Alignment.TopStart))
+            if(state.errorCode!=null && !pip)PlayerGlassIcon(Icons.Rounded.KeyboardArrowDown,stringResource(R.string.player_minimize),{if(immersive)leaveFullscreen()else onBack()},Modifier.align(Alignment.TopStart))
             if(state.errorCode!=null && !pip)Column(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha=.88f),RoundedCornerShape(12.dp)).padding(16.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.player_error),color=Color.White,style=SingularityTheme.type.label)
                 SingularityButton(stringResource(R.string.retry),{playback.retry();interact()},variant="secondary")
             }
             androidx.compose.animation.AnimatedVisibility(visible=controls && !locked && !pip && state.errorCode==null,enter=fadeIn(tween(if(motion)140 else 0)),exit=fadeOut(tween(if(motion)180 else 0))) {
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xA6000000),Color.Transparent,Color(0xB8000000))))) {
-                    Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().then(if(immersive)Modifier.statusBarsPadding().displayCutoutPadding()else Modifier),verticalAlignment=Alignment.CenterVertically) {
-                        PlayerIcon(Icons.Rounded.KeyboardArrowDown,stringResource(R.string.player_minimize),{if(immersive)leaveFullscreen()else onBack()})
-                        if(immersive)Text(video.title,color=Color.White,style=SingularityTheme.type.small,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f))else Spacer(Modifier.weight(1f))
-                        if(immersive)PlayerIcon(Icons.Rounded.LockOpen,stringResource(R.string.screen_lock),{locked=true;controls=false})
-                        PlayerIcon(Icons.Rounded.MoreVert,stringResource(R.string.options),{trackSheet="menu";interact()})
-                    }
-                    Row(Modifier.align(Alignment.Center).offset(y=if(immersive)0.dp else (-24).dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(if(immersive)32.dp else 16.dp)) {
-                        if(immersive)PlayerTransport(Icons.Rounded.SkipPrevious,stringResource(R.string.player_previous),state.hasPrevious || state.position>3000){playback.previous();interact()}
-                        PlayerTransport(Icons.Rounded.Replay10,stringResource(R.string.seek_back),state.duration>0){playback.skip(-10000);interact()}
-                        Box(Modifier.size(if(immersive)72.dp else 56.dp).clip(CircleShape).background(Color.Black.copy(alpha=.5f)).clickable(role=Role.Button){main.toggle();interact()},contentAlignment=Alignment.Center){
-                            if(state.buffering)AccretionRing(0f,if(immersive)68.dp else 52.dp,"indeterminate")
-                            Icon(when{state.ended->Icons.Rounded.Replay;state.playWhenReady->Icons.Rounded.Pause;else->Icons.Rounded.PlayArrow},stringResource(when{state.ended->R.string.player_replay;state.playWhenReady->R.string.pause;else->R.string.play}),Modifier.size(if(immersive)38.dp else 30.dp),tint=Color.White)
-                        }
-                        PlayerTransport(Icons.Rounded.Forward10,stringResource(R.string.seek_forward),state.duration>0){playback.skip(10000);interact()}
-                        if(immersive)PlayerTransport(Icons.Rounded.SkipNext,stringResource(R.string.player_next),state.hasNext){playback.next();interact()}
-                    }
-                    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().then(if(immersive)Modifier.navigationBarsPadding().displayCutoutPadding()else Modifier).padding(horizontal=8.dp)) {
-                        Row(Modifier.fillMaxWidth().heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically) {
-                            Text("${Formatters.duration(state.position)} / ${Formatters.duration(state.duration)}",color=Color.White,style=SingularityTheme.type.label.copy(fontFeatureSettings="tnum"),maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f).padding(start=8.dp))
-                            if(state.speed!=1f)Text("${state.speed}×",color=Color.White,style=SingularityTheme.type.caption,modifier=Modifier.clickable{trackSheet="speed";interact()}.padding(horizontal=8.dp))
-                            if(state.subtitleTracks.isNotEmpty())PlayerIcon(Icons.Rounded.ClosedCaption,stringResource(R.string.subtitles),{trackSheet="text";interact()})
-                            if(immersive)PlayerIcon(Icons.Rounded.AspectRatio,stringResource(R.string.resize_video),{fill=!fill;interact()})
-                            PlayerIcon(if(immersive)Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,stringResource(if(immersive)R.string.player_exit_fullscreen else R.string.fullscreen),{if(immersive)leaveFullscreen()else {portraitLock=false;full=true};interact()})
-                        }
-                        ArcaSeekBar(state,{playback.seek(it)},{interact()},Modifier.fillMaxWidth(),{scrubbing=it})
-                    }
-                }
+                PlayerChrome(state,immersive,
+                    onMinimize={if(immersive)leaveFullscreen()else onBack()},
+                    onMenu={trackSheet=it;interact()},onLock={locked=true;controls=false},
+                    onToggle={main.toggle();interact()},onSkip={playback.skip(it);interact()},
+                    onSeek={playback.seek(it)},onPrevious={playback.previous();interact()},onNext={playback.next();interact()},
+                    onResize={fill=!fill;interact()},
+                    onFullscreen={if(immersive)leaveFullscreen()else{portraitLock=false;full=true};interact()},
+                    onInteract={interact()},onScrubbing={scrubbing=it})
             }
         }
-        if(!immersive && !pip)WatchPage(video,video.id in refreshing,{extras.refreshMetadata(video)},{extras.openSubtitles(video)},state.audioOnly,all,settings.autoplayNext,onAutoplay,onChannel,{playback.setAudioOnly(!state.audioOnly)},{main.play(it,all)},watchList,descriptionExpanded,{descriptionExpanded=!descriptionExpanded},Modifier.weight(1f).navigationBarsPadding())
+        if(!immersive && !pip)WatchPage(video,video.id in refreshing,{extras.refreshMetadata(video)},{extras.openSubtitles(video)},state.audioOnly,all,settings.autoplayNext,onAutoplay,onChannel,{playback.setAudioOnly(!state.audioOnly)},{main.play(it,all)},watchList,descriptionExpanded,{descriptionExpanded=!descriptionExpanded},Modifier.weight(1f).navigationBarsPadding()) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                PlayerGlassLabel("${state.speed}×",stringResource(R.string.speed),{trackSheet="speed";interact()},Icons.Rounded.Speed)
+                if(state.audioTracks.isNotEmpty())PlayerGlassLabel(state.audioTracks.firstOrNull{it.selected}?.displayName ?: stringResource(R.string.audio_tracks),stringResource(R.string.audio_tracks),{trackSheet="audio";interact()},Icons.Rounded.Headphones,Modifier.widthIn(max=180.dp))
+                PlayerGlassLabel(stringResource(R.string.subtitles),stringResource(R.string.subtitles),{trackSheet="text";interact()},Icons.Rounded.ClosedCaption)
+            }
+        }
     }
     if(deleting)SingularityDialog(stringResource(R.string.delete),stringResource(R.string.delete_question),stringResource(R.string.delete),stringResource(R.string.cancel),{deleting=false;onDelete(video);onBack()},{deleting=false})
     trackSheet?.let{page->PlayerMenu(page,state,{trackSheet=it},{trackSheet=null},{playback.speed(it);interact()},{playback.selectTrack(it)},{playback.disableSubtitles()}, {runCatching{subtitlePicker.launch(arrayOf("text/*","application/x-subrip","application/ttml+xml","application/octet-stream"))}}, {playback.setAudioOnly(!state.audioOnly)}, {extras.refreshMetadata(video)}, {extras.openSubtitles(video)}, {trackSheet=null;deleting=true},video.id in refreshing)}
 }
-@Composable private fun PlayerIcon(icon:androidx.compose.ui.graphics.vector.ImageVector,label:String,onClick:()->Unit,modifier:Modifier=Modifier){
-    Box(modifier.size(48.dp).clip(CircleShape).clickable(role=Role.Button,onClick=onClick),contentAlignment=Alignment.Center){Icon(icon,label,tint=Color.White,modifier=Modifier.size(24.dp))}
-}
-
-@Composable private fun PlayerTransport(icon:androidx.compose.ui.graphics.vector.ImageVector,label:String,enabled:Boolean,onClick:()->Unit) {
-    Box(Modifier.size(48.dp).clip(CircleShape).clickable(enabled=enabled,role=Role.Button,onClick=onClick),contentAlignment=Alignment.Center){Icon(icon,label,tint=Color.White.copy(alpha=if(enabled)1f else .3f),modifier=Modifier.size(26.dp))}
-}
-
 @Composable fun MiniPlayer(state:PlaybackState,playback:Playback,onOpen:()->Unit,onToggle:()->Unit,onClose:()->Unit,modifier:Modifier=Modifier,active:Boolean=true) {
     val video=state.video ?: return
     val c=SingularityTheme.colors

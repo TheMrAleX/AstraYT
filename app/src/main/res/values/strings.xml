@@ -287,4 +287,12 @@
     <string name="subtitle_export">Guardar SRT</string>
     <string name="subtitle_exported">Copia SRT guardada</string>
     <string name="subtitle_timeline_missing">No se conserva la línea de tiempo de los recortes de este vídeo antiguo. Vuelve a descargar el vídeo con subtítulos para sincronizarlos.</string>
+    <string name="settings_personal">Tu experiencia</string>
+    <string name="settings_manage">Descargas y espacio</string>
+    <string name="settings_appearance_summary">Color, negro puro y movimiento</string>
+    <string name="settings_downloads_summary">%1$s · %2$d descargas simultáneas</string>
+    <string name="settings_library_size">%1$s en tu biblioteca</string>
+    <string name="settings_cuts_on">Recortes activados</string>
+    <string name="settings_cuts_off">Sin recortes automáticos</string>
+    <string name="player_no_audio_tracks">Este archivo no tiene pistas de audio disponibles.</string>
 </resources>

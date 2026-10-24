@@ -93,7 +93,7 @@ private data class DragState(val mode:DragMode,val value:Float=0f,val target:Lon
             })
         })) {
         val label=when{boosted->"2×";drag?.mode==DragMode.SEEK->Formatters.duration(drag!!.target);drag!=null->stringResource(if(drag!!.mode==DragMode.BRIGHTNESS)R.string.brightness else R.string.volume)+" ${(drag!!.value*100).toInt()} %";else->null}
-        if(label!=null)Column(Modifier.align(Alignment.Center).widthIn(min=112.dp,max=220.dp).background(Color.Black.copy(alpha=.82f),RoundedCornerShape(14.dp)).padding(horizontal=18.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp),horizontalAlignment=Alignment.CenterHorizontally){
+        if(label!=null)Column(Modifier.align(Alignment.Center).widthIn(min=112.dp,max=220.dp).playerGlass(RoundedCornerShape(14.dp),strong=true).padding(horizontal=18.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp),horizontalAlignment=Alignment.CenterHorizontally){
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
                 if(drag?.mode==DragMode.BRIGHTNESS || drag?.mode==DragMode.VOLUME)Icon(if(drag?.mode==DragMode.BRIGHTNESS)Icons.Rounded.Brightness6 else Icons.Rounded.VolumeUp,null,tint=Color.White,modifier=Modifier.size(20.dp))
                 Text(label,color=Color.White,style=SingularityTheme.type.label.copy(fontFeatureSettings="tnum"))
@@ -104,6 +104,7 @@ private data class DragState(val mode:DragMode,val value:Float=0f,val target:Lon
     }
 }
 @Composable internal fun ArcaSeekBar(state:PlaybackState,onSeek:(Long)->Unit,onInteract:()->Unit,modifier:Modifier=Modifier,onScrubbing:(Boolean)->Unit={}) {
+    val accent=SingularityTheme.colors.accent
     var scrub by remember(state.video?.id){mutableStateOf<Float?>(null)}
     val current by rememberUpdatedState(state);val seek by rememberUpdatedState(onSeek);val interact by rememberUpdatedState(onInteract);val scrubbing by rememberUpdatedState(onScrubbing)
     val fraction=scrub ?: PlayerTimeline.fraction(state.position,state.duration)
@@ -123,8 +124,8 @@ private data class DragState(val mode:DragMode,val value:Float=0f,val target:Lon
             val h=(if(scrub!=null)5.dp else 3.dp).toPx();val y=(size.height-h)/2;val radius=CornerRadius(h/2)
             drawRoundRect(Color.White.copy(alpha=.25f),Offset(0f,y),Size(size.width,h),radius)
             drawRoundRect(Color.White.copy(alpha=.45f),Offset(0f,y),Size(size.width*PlayerTimeline.fraction(state.buffered,state.duration),h),radius)
-            drawRoundRect(YoutubeRed,Offset(0f,y),Size(size.width*fraction,h),radius)
-            drawCircle(YoutubeRed,(if(scrub!=null)8.dp else 5.dp).toPx(),Offset((size.width*fraction).coerceIn(5.dp.toPx(),(size.width-5.dp.toPx()).coerceAtLeast(5.dp.toPx())),size.height/2))
+            drawRoundRect(accent,Offset(0f,y),Size(size.width*fraction,h),radius)
+            drawCircle(Color.White,(if(scrub!=null)8.dp else 5.dp).toPx(),Offset((size.width*fraction).coerceIn(5.dp.toPx(),(size.width-5.dp.toPx()).coerceAtLeast(5.dp.toPx())),size.height/2))
         }
     }
 }
