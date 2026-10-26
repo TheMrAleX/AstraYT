@@ -15,16 +15,27 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.*
 import java.io.File
 import javax.inject.*
+import con.themralex.astrayt.timeline.*
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 data class PlayerTrack(val group:TrackGroup,val index:Int,val displayName:String,val selected:Boolean,val type:Int)
-data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,val buffering:Boolean=false,val position:Long=0,val duration:Long=0,val buffered:Long=0,val speed:Float=1f,val audioOnly:Boolean=false,val audioTracks:List<PlayerTrack> = emptyList(),val subtitleTracks:List<PlayerTrack> = emptyList(),val ended:Boolean=false,val errorCode:Int?=null,val hasPrevious:Boolean=false,val hasNext:Boolean=false,val playWhenReady:Boolean=false)
+data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,val buffering:Boolean=false,val position:Long=0,val duration:Long=0,val buffered:Long=0,val speed:Float=1f,val audioOnly:Boolean=false,val audioTracks:List<PlayerTrack> = emptyList(),val subtitleTracks:List<PlayerTrack> = emptyList(),val ended:Boolean=false,val errorCode:Int?=null,val hasPrevious:Boolean=false,val hasNext:Boolean=false,val playWhenReady:Boolean=false,val chapters:List<Chapter> = emptyList(),val sponsorSegments:List<SponsorSegment> = emptyList(),val skipNotice:SkipNotice?=null)
 @androidx.annotation.OptIn(markerClass=[androidx.media3.common.util.UnstableApi::class])
-@Singleton class Playback @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val preferences:Preferences,private val subtitles:con.themralex.astrayt.download.SubtitleDownloads) {
+@Singleton class Playback @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val preferences:Preferences,private val subtitles:con.themralex.astrayt.download.SubtitleDownloads,private val timelines:TimelineStore) {
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate+CoroutineExceptionHandler{_,_->})
     private val mutex=Mutex()
     private val selection=Mutex()
+    private var settings=con.themralex.astrayt.data.prefs.Settings()
+    private var timeline=VideoTimeline()
+    private var timelineKey=""
+    private var timelineJob:Job?=null
+    private fun requestTimeline(video:VideoEntity?) {
+        val key=video?.let{"${it.id}:${it.contentUri}"}.orEmpty()
+        if(key==timelineKey)return
+        timelineKey=key;timeline=VideoTimeline();timelineJob?.cancel()
+        if(video!=null)timelineJob=scope.launch{val loaded=timelines.read(video);if(timelineKey==key){timeline=loaded;controller?.let{update(it)}}}
+    }
     private var preparing=false
     private var audioPreference=false
     private var target:java.lang.ref.WeakReference<androidx.media3.ui.PlayerView>?=null
@@ -42,13 +53,14 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
     private fun update(player:Player){
         if(preparing)return
         val video=playlist.firstOrNull{it.id.toString()==player.currentMediaItem?.mediaId}
+        requestTimeline(video)
         val index=playlist.indexOfFirst{it.id==video?.id}
         val audioMode=audioPreference || video?.kind=="AUDIO"
         _state.value=_state.value.copy(video=video,audioOnly=audioMode,playing=player.isPlaying,buffering=player.playbackState==Player.STATE_BUFFERING,
             position=player.currentPosition.coerceAtLeast(0),duration=player.duration.takeIf{it>0} ?: video?.durationMs ?: 0,
             buffered=player.bufferedPosition.coerceAtLeast(0),speed=player.playbackParameters.speed,
             audioTracks=tracks(player,C.TRACK_TYPE_AUDIO),subtitleTracks=tracks(player,C.TRACK_TYPE_TEXT),
-            playWhenReady=player.playWhenReady,ended=player.playbackState==Player.STATE_ENDED,errorCode=player.playerError?.errorCode,hasPrevious=index>0,hasNext=index>=0 && index<playlist.lastIndex)
+            chapters=if(settings.chapterRecognitionEnabled)timeline.chapters else emptyList(),sponsorSegments=if(settings.sponsorRecognitionEnabled)timeline.sponsors.filter{it.category in settings.sponsorBlockCategories}else emptyList(),playWhenReady=player.playWhenReady,ended=player.playbackState==Player.STATE_ENDED,errorCode=player.playerError?.errorCode,hasPrevious=index>0,hasNext=index>=0 && index<playlist.lastIndex)
         if(player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_VIDEO)!=audioMode)player.trackSelectionParameters=player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO,audioMode).build()
     }
     private val _state=MutableStateFlow(PlaybackState())
@@ -194,6 +206,11 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
     fun speed(value:Float){controller?.setPlaybackSpeed(value.coerceIn(.25f,2f))}
     fun next(){val index=playlist.indexOfFirst{it.id==state.value.video?.id};playlist.getOrNull(index+1)?.let{next->scope.launch{play(next,playlist,audioPreference)}}}
     fun previous(){if((controller?.currentPosition ?: state.value.position)>3000){seek(0);return};val index=playlist.indexOfFirst{it.id==state.value.video?.id};val previous=playlist.getOrNull(index-1);if(previous!=null)scope.launch{play(previous,playlist,audioPreference)}else seek(0)}
+    init{
+        scope.launch{preferences.flow.collect{settings=it;controller?.let{update(it)}}}
+        scope.launch{timelines.changes.collect{ytId->if(state.value.video?.ytId==ytId){timelineKey="";controller?.let{update(it)}}}}
+        scope.launch{timelines.skips.collect{notice->if(state.value.video?.id.toString()==notice.mediaId)_state.value=_state.value.copy(skipNotice=notice)}}
+    }
     init{scope.launch{subtitles.changes.collect{ytId->state.value.video?.takeIf{it.ytId==ytId}?.let{reloadSubtitles(it.id)}}}}
     suspend fun save(){_state.value.video?.let{dao.position(it.id,state.value.position)}}
 }

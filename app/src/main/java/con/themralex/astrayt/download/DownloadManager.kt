@@ -25,7 +25,7 @@ import kotlin.random.Random
 @kotlinx.serialization.Serializable data class DownloadOptions(val details:VideoDetails?=null,val trackId:String?=null,val height:Int=1080,val container:String="",val audioOnly:Boolean=false,val sponsorBlockCategories:Set<String> = emptySet(),val pinnedVideoId:String?=null,val pinnedAudioId:String?=null,val planPinned:Boolean=false,val requestedHeight:Int?=null,val audioLanguage:String?=null,val audioType:String?=null,val audioLabel:String?=null,val requestedAudioLanguage:String?=null,val subtitleId:String?=null,val subtitleLanguage:String?=null)
 data class Progress(val done:Long,val total:Long,val speed:Long,val eta:Long) {val fraction get()=if(total>0)done.toFloat()/total else 0f}
 private class StreamExpired:IOException()
-@Singleton class DownloadManager @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val preferences:Preferences,private val backend:YoutubeBackend,private val client:OkHttpClient,private val storage:MediaStorage,private val subtitles:SubtitleDownloads) {
+@Singleton class DownloadManager @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val preferences:Preferences,private val backend:YoutubeBackend,private val client:OkHttpClient,private val storage:MediaStorage,private val subtitles:SubtitleDownloads,private val timelines:con.themralex.astrayt.timeline.TimelineStore) {
     private val handler=CoroutineExceptionHandler{_,_->}
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO+handler)
     private val active=ConcurrentHashMap<Long,Job>()
@@ -142,7 +142,7 @@ private class StreamExpired:IOException()
             var options=Json.decodeFromString<DownloadOptions>(row.optionsJson)
             awaitNetwork(row.id,prefs,"FETCHING")
             val cuts=if(options.sponsorBlockCategories.isEmpty())emptyList()else SponsorBlock(client).segments(row.ytId,options.sponsorBlockCategories)
-            var details=options.details?.takeIf{System.currentTimeMillis()-it.fetchedAt<1200000 && (it.videos.isNotEmpty() || it.tracks.isNotEmpty())} ?: backend.details(row.ytId)
+            var details=options.details?.takeIf{System.currentTimeMillis()-it.fetchedAt<1200000 && it.metadataLanguage==con.themralex.astrayt.timeline.TimelinePolicy.language(context.resources.configuration.locales[0].language) && (it.videos.isNotEmpty() || it.tracks.isNotEmpty())} ?: backend.details(row.ytId)
             val remembered=options.requestedAudioLanguage ?: prefs.rememberedAudioLanguage ?: dao.channelLanguage(details.channelId)
             fun selectedTrack():AudioTrackOption? {
                 val id=options.trackId
@@ -173,6 +173,7 @@ private class StreamExpired:IOException()
             options=options.copy(trackId=options.trackId ?: selected?.id,audioLanguage=options.audioLanguage ?: selected?.locale,audioType=options.audioType ?: selected?.type,audioLabel=options.audioLabel ?: selected?.displayName,pinnedVideoId=plan.video?.id,pinnedAudioId=plan.audio?.id,container=plan.container,height=plan.height,planPinned=true)
             dao.options(row.id,Json.encodeToString(options))
             dao.metadata(row.id,details.title,details.channelName,details.thumbnail)
+            val annotationTask=CoroutineScope(currentCoroutineContext()).async{timelines.recognize(details)}
             CoroutineScope(currentCoroutineContext()).launch{storage.prefetchArt(details)}
             awaitNetwork(row.id,prefs)
             val lengths=mutableMapOf<String,Long>()
@@ -280,10 +281,13 @@ private class StreamExpired:IOException()
                     }
                 }.awaitAll()
             }
-            state.save();wake?.let{if(it.isHeld)it.release()};wake=null;currentCoroutineContext().ensureActive();dao.runningState(row.id,"MUXING")
+            state.save();wake?.let{if(it.isHeld)it.release()};wake=null;currentCoroutineContext().ensureActive()
             if(dir.usableSpace<total+16L*1024*1024)throw IOException("DISK_FULL")
-            val appliedCuts=storage.finish(row,options,details,plan,File(dir,"video.part").takeIf{it.exists()},File(dir,"audio.part").takeIf{it.exists()},cuts)
-            var subtitleError:String?=null
+            if(!annotationTask.isCompleted)dao.runningState(row.id,"FETCHING")
+            val annotations=annotationTask.await()
+            dao.runningState(row.id,"MUXING")
+            val appliedCuts=storage.finish(row,options,details,plan,File(dir,"video.part").takeIf{it.exists()},File(dir,"audio.part").takeIf{it.exists()},cuts,annotations)
+            var subtitleError:String?=if(annotations.sponsorFailed)"TIMELINE_DOWNLOAD"else null
             if(options.subtitleId!=null || options.subtitleLanguage!=null)try {
                 dao.runningState(row.id,"SUBTITLES")
                 val source=details.subtitles.firstOrNull{it.id==options.subtitleId} ?: options.subtitleLanguage?.let{SubtitlePolicy.select(details.subtitles,it)}

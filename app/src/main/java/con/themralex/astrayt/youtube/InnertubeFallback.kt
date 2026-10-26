@@ -18,7 +18,7 @@ internal class InnertubeFallback(private val client:OkHttpClient,private val tra
             Json.parseToJsonElement(it.body.string()).jsonObject
         }
     }
-    fun details(id:String,metadata:VideoDetails?,forceAll:Boolean=false,language:String=java.util.Locale.getDefault().language,discoverAudio:Boolean=false,deadlineNanos:Long=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(24)):VideoDetails {
+    fun details(id:String,metadata:VideoDetails?,forceAll:Boolean=false,language:String=java.util.Locale.getDefault().language,discoverAudio:Boolean=false,deadlineNanos:Long=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(24),metadataLanguage:String=language):VideoDetails {
         var best=metadata
         var failure:Exception?=null
         // VR 1.65.10 stopped serving media; use valid anonymous sessions, not that retired profile.
@@ -29,17 +29,18 @@ internal class InnertubeFallback(private val client:OkHttpClient,private val tra
             if(Thread.currentThread().isInterrupted)throw InterruptedException()
             try {
                 val deadline=minOf(overallDeadline,System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(8))
-                val boot=send(profile.visitorRequest(language),deadline)
+                val boot=send(profile.visitorRequest(metadataLanguage),deadline)
                 val visitor=boot.obj("responseContext").text("visitorData").takeIf{it.isNotBlank()} ?: throw IOException("Missing visitor session")
                 val cpn=org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.generateContentPlaybackNonce()
                 val t=org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.generateTParameter()
                 val timestamp=if(profile==InnertubeSession.web)try{YoutubeJavaScriptPlayerManager.getSignatureTimestamp(id)}catch(e:InterruptedException){throw e}catch(_:Exception){null}else null
-                val response=send(profile.playerRequest(id,language,visitor,cpn,t,timestamp),deadline)
+                val response=send(profile.playerRequest(id,metadataLanguage,visitor,cpn,t,timestamp),deadline)
                 val result=parse(id,response,best,profile.mediaHeaders,signature={YoutubeJavaScriptPlayerManager.deobfuscateSignature(id,it)}){url->
                     val decoded=YoutubeJavaScriptPlayerManager.getUrlWithThrottlingParameterDeobfuscated(id,url)
                     decoded.toHttpUrl().newBuilder().setQueryParameter("cpn",cpn).build().toString()
                 }
-                best=best?.let{StreamRecovery.merge(it,result)} ?: result
+                val localized=result.copy(metadataLanguage=metadataLanguage,chapters=result.chapters.ifEmpty{con.themralex.astrayt.timeline.TimelinePolicy.fromDescription(result.description,result.durationMs)})
+                best=best?.let{StreamRecovery.merge(it,localized)} ?: localized
                 val preferredFound=best.tracks.any{it.type!="DESCRIPTIVE" && it.locale.substringBefore('-').equals(language.substringBefore('-'),true)}
                 if(!forceAll && !StreamRecovery.needsAlternate(best) && (!discoverAudio || (result.tracks.size>1 && preferredFound)))return best
             }catch(e:InterruptedException){throw e}catch(e:java.util.concurrent.CancellationException){throw e}catch(e:Exception){if(e.message?.contains("429")==true)throw e;failure=e}
@@ -79,7 +80,7 @@ internal class InnertubeFallback(private val client:OkHttpClient,private val tra
             val tracks=audio.map { (key,streams)->val t=trackData.getValue(key);val isDefault=t["audioIsDefault"]?.jsonPrimitive?.booleanOrNull ?: (key=="original");val type=trackTypes.getValue(key).let{if(it=="UNKNOWN" && trackTypes.values.any{value->value=="ORIGINAL"})"DUBBED"else it};AudioTrackOption(key,key.substringBefore('.').takeUnless{it=="original"}.orEmpty(),type,t.text("displayName"),streams,isDefault) }
             if(videos.isEmpty() && tracks.isEmpty())throw NoStreams()
             val thumbs=v.obj("thumbnail")["thumbnails"] as? JsonArray
-            val base=metadata ?: VideoDetails(id,v.text("title"),"https://www.youtube.com/channel/${v.text("channelId")}",v.text("author"),"",(thumbs?.lastOrNull() as? JsonObject)?.text("url").orEmpty(),v.number("lengthSeconds")*1000,v.number("viewCount"),0,v.text("shortDescription").take(2000),emptyList(),emptyList())
+            val base=metadata ?: VideoDetails(id,v.text("title"),"https://www.youtube.com/channel/${v.text("channelId")}",v.text("author"),"",(thumbs?.lastOrNull() as? JsonObject)?.text("url").orEmpty(),v.number("lengthSeconds")*1000,v.number("viewCount"),0,v.text("shortDescription").take(20000),emptyList(),emptyList())
             val subtitles=response.obj("captions").obj("playerCaptionsTracklistRenderer")["captionTracks"] as? JsonArray
             val captions=subtitles.orEmpty().mapNotNull { element->
                 val item=element as? JsonObject ?: return@mapNotNull null

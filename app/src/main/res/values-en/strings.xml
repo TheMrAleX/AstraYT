@@ -296,4 +296,18 @@
     <string name="settings_cuts_off">No automatic trimming</string>
     <string name="player_no_audio_tracks">This file has no available audio tracks.</string>
     <string name="player_speed_boost">2×</string>
+    <string name="timeline_settings">Chapters and SponsorBlock</string>
+    <string name="timeline_summary">Offline chapters and segments</string>
+    <string name="chapter_recognition">Recognize chapters</string>
+    <string name="chapter_recognition_body">Save creator chapters in the app language and divide the seek bar.</string>
+    <string name="sponsor_recognition">Recognize SponsorBlock</string>
+    <string name="timeline_offline">Saved when downloading or refreshing video metadata. Works offline afterwards. Choose the categories to display.</string>
+    <string name="sponsor_skip">Skip SponsorBlock segments</string>
+    <string name="sponsor_skip_body">Skip selected categories during playback without cutting the file.</string>
+    <string name="sb_sponsor_skipped">Sponsor skipped</string>
+    <string name="sb_intro_skipped">Intro skipped</string>
+    <string name="sb_outro_skipped">Outro skipped</string>
+    <string name="sb_segment_skipped">Segment skipped</string>
+    <string name="timeline_partial">Video saved. SponsorBlock could not be saved; refresh metadata online to retry.</string>
+    <string name="timeline_cut_missing">This video was cut without saving its timeline. Download it again to recognize chapters and segments accurately.</string>
 </resources>

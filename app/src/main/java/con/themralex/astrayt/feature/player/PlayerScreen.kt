@@ -93,6 +93,11 @@ import kotlinx.coroutines.delay
         if(controls && state.playing && !state.buffering && !scrubbing && trackSheet==null){delay(3000);controls=false}
     }
     LaunchedEffect(state.ended,state.errorCode){if(state.ended || state.errorCode!=null)controls=true}
+    var skippedCategory by remember(video.id){mutableStateOf<String?>(null)}
+    LaunchedEffect(state.skipNotice?.serial){
+        val notice=state.skipNotice
+        if(notice!=null && notice.mediaId==video.id.toString() && System.nanoTime()-notice.serial in 0..2_000_000_000L){skippedCategory=notice.category;delay(1800);skippedCategory=null}
+    }
     val subtitlePicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null){main.addSubtitle(uri);trackSheet=null}}
     Column(Modifier.fillMaxSize().then(if(!immersive && !pip)Modifier.statusBarsPadding()else Modifier).graphicsLayer{
         translationY=if(immersive || pip)0f else translated
@@ -105,6 +110,10 @@ import kotlinx.coroutines.delay
                 AsyncImage(video.thumbnailPath,null,Modifier.fillMaxSize().padding(if(immersive)48.dp else 20.dp).clip(RoundedCornerShape(16.dp)),contentScale=androidx.compose.ui.layout.ContentScale.Fit)
             }else PlayerSurface(playback,state,active,fill,Modifier.fillMaxSize())
             if(!pip)key(video.id){ArcaGestureLayer(playback,state,locked,{controls=!controls;interact()},{controls=false;interact()},immersive,onBack,{dragOffset=it},Modifier.fillMaxSize())}
+            androidx.compose.animation.AnimatedVisibility(visible=skippedCategory!=null,modifier=Modifier.align(Alignment.TopCenter).padding(top=52.dp),enter=fadeIn(tween(if(motion)140 else 0)),exit=fadeOut(tween(if(motion)120 else 0))) {
+                val label=when(state.skipNotice?.category ?: skippedCategory){"sponsor"->R.string.sb_sponsor_skipped;"intro"->R.string.sb_intro_skipped;"outro"->R.string.sb_outro_skipped;else->R.string.sb_segment_skipped}
+                Text(stringResource(label),color=Color.White,style=SingularityTheme.type.caption,modifier=Modifier.background(Color.Black.copy(alpha=.72f),RoundedCornerShape(8.dp)).padding(horizontal=10.dp,vertical=5.dp))
+            }
             if(locked && controls && !pip)PlayerGlassIcon(Icons.Rounded.Lock,stringResource(R.string.screen_unlock),{locked=false;interact()},Modifier.align(Alignment.CenterEnd).padding(end=12.dp).background(Color.Black.copy(alpha=.65f),CircleShape))
             if(state.buffering && !controls && state.errorCode==null && !pip)Box(Modifier.align(Alignment.Center).size(64.dp).background(Color.Black.copy(alpha=.5f),CircleShape),contentAlignment=Alignment.Center){AccretionRing(0f,40.dp,"indeterminate")}
             if(state.errorCode!=null && !pip)PlayerGlassIcon(Icons.Rounded.KeyboardArrowDown,stringResource(R.string.player_minimize),{if(immersive)leaveFullscreen()else onBack()},Modifier.align(Alignment.TopStart))

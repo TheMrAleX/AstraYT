@@ -22,6 +22,9 @@ import androidx.compose.ui.platform.*
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.text.style.TextOverflow
+import con.themralex.astrayt.timeline.TimelinePolicy
 import con.themralex.astrayt.R
 import con.themralex.astrayt.core.designsystem.SingularityTheme
 import con.themralex.astrayt.core.util.Formatters
@@ -120,6 +123,18 @@ private data class DragState(val mode:DragMode,val value:Float=0f,val target:Lon
     var scrub by remember(state.video?.id){mutableStateOf<Float?>(null)}
     val current by rememberUpdatedState(state);val seek by rememberUpdatedState(onSeek);val interact by rememberUpdatedState(onInteract);val scrubbing by rememberUpdatedState(onScrubbing)
     val fraction=scrub ?: PlayerTimeline.fraction(state.position,state.duration)
+    val haptics=LocalHapticFeedback.current
+    val chapterIndex=TimelinePolicy.chapterAt(state.chapters,PlayerTimeline.seek(fraction,state.duration))
+    var lastChapter by remember(state.video?.id){mutableStateOf<Int?>(null)}
+    LaunchedEffect(scrub!=null,chapterIndex){
+        if(scrub==null)lastChapter=null
+        else {if(lastChapter!=null && lastChapter!=chapterIndex && chapterIndex>=0)haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove);lastChapter=chapterIndex}
+    }
+    val boundaries=remember(state.chapters,state.duration){(listOf(0L)+state.chapters.map{it.startMs}+state.duration).distinct().sorted()}
+
+    val boundarySet=remember(boundaries){boundaries.toHashSet()}
+    val spans=remember(boundaries){boundaries.zipWithNext()}
+    val overlays=remember(state.chapters,state.duration,state.sponsorSegments){TimelinePolicy.railSegments(state.chapters,state.duration,state.sponsorSegments).sortedBy{if(it.category=="sponsor")1 else 0}}
     val description=stringResource(R.string.player_seek)
     DisposableEffect(state.video?.id){onDispose{scrubbing(false)}}
     Box(modifier.fillMaxWidth().height(48.dp).semantics {
@@ -131,12 +146,27 @@ private data class DragState(val mode:DragMode,val value:Float=0f,val target:Lon
         },onDragEnd={scrub?.let{seek(PlayerTimeline.seek(it,current.duration))};scrub=null;scrubbing(false);interact()},onDragCancel={scrub=null;scrubbing(false)},onHorizontalDrag={change,dx->
             if(scrub!=null && size.width>0){change.consume();scrub=((scrub ?: 0f)+dx/size.width).coerceIn(0f,1f);interact()}
         })},contentAlignment=Alignment.CenterStart) {
-        scrub?.let{Text(Formatters.duration(PlayerTimeline.seek(it,state.duration)),color=Color.White,style=SingularityTheme.type.caption,modifier=Modifier.align(Alignment.TopCenter).background(Color.Black.copy(alpha=.8f),RoundedCornerShape(6.dp)).padding(horizontal=8.dp))}
+        scrub?.let{value->Column(Modifier.align(Alignment.BottomCenter).offset(y=(-44).dp).widthIn(max=240.dp).background(Color.Black.copy(alpha=.8f),RoundedCornerShape(8.dp)).padding(horizontal=10.dp,vertical=4.dp),horizontalAlignment=Alignment.CenterHorizontally){
+            state.chapters.getOrNull(chapterIndex)?.let{Text(it.title,color=Color.White.copy(alpha=.85f),style=SingularityTheme.type.caption,maxLines=1,overflow=TextOverflow.Ellipsis)}
+            Text(Formatters.duration(PlayerTimeline.seek(value,state.duration)),color=Color.White,style=SingularityTheme.type.caption)
+        }}
         Canvas(Modifier.fillMaxWidth().height(16.dp)) {
             val h=(if(scrub!=null)5.dp else 3.dp).toPx();val y=(size.height-h)/2;val radius=CornerRadius(h/2)
-            drawRoundRect(Color.White.copy(alpha=.25f),Offset(0f,y),Size(size.width,h),radius)
-            drawRoundRect(Color.White.copy(alpha=.45f),Offset(0f,y),Size(size.width*PlayerTimeline.fraction(state.buffered,state.duration),h),radius)
-            drawRoundRect(accent,Offset(0f,y),Size(size.width*fraction,h),radius)
+            val gap=if(boundaries.size>2)2.dp.toPx()else 0f
+            fun span(color:Color,start:Long,end:Long,limit:Float=1f) {
+                val x0=size.width*PlayerTimeline.fraction(start,state.duration)
+                val x1=size.width*PlayerTimeline.fraction(end,state.duration)
+                val inset=minOf(gap/2,(x1-x0).coerceAtLeast(0f)/4)
+                val left=x0+if(start>0 && start in boundarySet)inset else 0f
+                val right=minOf(x1-if(end<state.duration && end in boundarySet)inset else 0f,size.width*limit)
+                if(right>left)drawRoundRect(color,Offset(left,y),Size(right-left,h),radius)
+            }
+            spans.forEach{(a,b)->
+                span(Color.White.copy(alpha=.25f),a,b)
+                span(Color.White.copy(alpha=.45f),a,b,PlayerTimeline.fraction(state.buffered,state.duration))
+                span(accent,a,b,fraction)
+            }
+            overlays.forEach{s->span(Color(TimelinePolicy.colors[s.category] ?: 0xFFFFFFFF),s.startMs,s.endMs)}
             drawCircle(Color.White,(if(scrub!=null)8.dp else 5.dp).toPx(),Offset((size.width*fraction).coerceIn(5.dp.toPx(),(size.width-5.dp.toPx()).coerceAtLeast(5.dp.toPx())),size.height/2))
         }
     }

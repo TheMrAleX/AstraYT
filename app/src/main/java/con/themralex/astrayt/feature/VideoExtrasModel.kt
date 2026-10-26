@@ -17,12 +17,12 @@ import java.io.File
 import javax.inject.Inject
 
 data class SubtitleDialogState(val video:VideoEntity?=null,val loading:Boolean=false,val tracks:List<SubtitleOption> = emptyList(),val selected:String?=null,val remember:Boolean=false,val downloading:Boolean=false,val error:Boolean=false,val file:File?=null,val timelineMissing:Boolean=false)
-@HiltViewModel class VideoExtrasModel @Inject constructor(private val backend:YoutubeBackend,private val storage:MediaStorage,private val subtitles:SubtitleDownloads,private val prefs:Preferences,private val playback:Playback,@ApplicationContext private val context:Context):ScreenModel() {
+@HiltViewModel class VideoExtrasModel @Inject constructor(private val backend:YoutubeBackend,private val storage:MediaStorage,private val subtitles:SubtitleDownloads,private val prefs:Preferences,private val playback:Playback,private val timelines:con.themralex.astrayt.timeline.TimelineStore,@ApplicationContext private val context:Context):ScreenModel() {
     private val _refreshing=MutableStateFlow(setOf<Long>());val refreshing=_refreshing.asStateFlow()
     private val _subtitle=MutableStateFlow(SubtitleDialogState());val subtitle=_subtitle.asStateFlow()
     private var request:Job?=null
     fun refreshMetadata(video:VideoEntity){if(video.id in _refreshing.value)return;_refreshing.value+=video.id
-        work{try{storage.repairMetadata(video.id,backend.metadata(video.ytId));playback.refreshMetadata(video.id);effects.send(R.string.metadata_updated)}finally{_refreshing.value-=video.id}}
+        work{try{storage.repairMetadata(video.id,backend.metadata(video.ytId));playback.refreshMetadata(video.id);effects.send(if(video.removedDurationMs>0 && subtitles.timeline(video.ytId).isEmpty())R.string.timeline_cut_missing else if(timelines.read(video).sponsorFailed)R.string.timeline_partial else R.string.metadata_updated)}finally{_refreshing.value-=video.id}}
     }
     fun openSubtitles(video:VideoEntity){request?.cancel();_subtitle.value=SubtitleDialogState(video=video,loading=true)
         request=work{try{val tracks=backend.metadata(video.ytId).subtitles;val settings=prefs.flow.first();val language=settings.subtitleLanguage ?: settings.preferredAudioLanguage

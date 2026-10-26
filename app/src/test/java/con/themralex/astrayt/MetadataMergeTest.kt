@@ -17,4 +17,11 @@ class MetadataMergeTest {
         val filled=MetadataMerge.fill(existing,remote)
         assertEquals("Guardado",filled.title);assertEquals("Existente",filled.description);assertEquals(0L,filled.likeCount);assertEquals(4L,filled.viewCount);assertEquals(5L,filled.uploadDateMs)
     }
+    @Test fun localizedRefreshReplacesEnglishDescriptionWithoutReplacingTheMedia() {
+        val existing=old.copy(description="English description",positionMs=23000)
+        val filled=MetadataMerge.fill(existing,remote.copy(metadataLanguage="es"))
+        assertEquals("Descripción",filled.description)
+        assertEquals(existing.contentUri,filled.contentUri);assertEquals(existing.positionMs,filled.positionMs)
+        assertEquals(existing.removedDurationMs,filled.removedDurationMs)
+    }
 }

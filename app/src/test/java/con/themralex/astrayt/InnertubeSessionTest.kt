@@ -88,4 +88,15 @@ class InnertubeSessionTest {
             assertEquals("application/json; charset=utf-8",request.body!!.contentType().toString())
         }
     }
+    @Test fun interfaceMetadataLanguageDoesNotChangePreferredAudioLanguage() {
+        val requested=mutableListOf<String>()
+        val recovered=InnertubeFallback(OkHttpClient()){request,_->
+            val payload=body(request)
+            requested.add(payload.getValue("context").jsonObject.getValue("client").jsonObject.getValue("hl").jsonPrimitive.content)
+            if(request.url.encodedPath.endsWith("visitor_id"))bootstrap else fixture
+        }.details(videoId,null,language="en",metadataLanguage="es",discoverAudio=true)
+        assertTrue(requested.isNotEmpty());assertTrue(requested.all{it=="es"})
+        assertEquals("es",recovered.metadataLanguage)
+        assertEquals("en",AudioTrackSelector.select(recovered.tracks,"en").track?.locale?.substringBefore('-'))
+    }
 }

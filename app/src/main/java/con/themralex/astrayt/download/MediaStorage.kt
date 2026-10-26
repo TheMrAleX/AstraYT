@@ -17,7 +17,7 @@ import okhttp3.*
 import java.io.*
 import java.nio.ByteBuffer
 import javax.inject.*
-@Singleton class MediaStorage @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val client:OkHttpClient,private val subtitles:SubtitleDownloads) {
+@Singleton class MediaStorage @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val client:OkHttpClient,private val subtitles:SubtitleDownloads,private val timelines:con.themralex.astrayt.timeline.TimelineStore) {
     private val artLocks=Array(16){Mutex()}
     private fun validArt(file:File):Boolean {if(!file.isFile || file.length()==0L)return false;val bounds=BitmapFactory.Options().apply{inJustDecodeBounds=true};BitmapFactory.decodeFile(file.absolutePath,bounds);return bounds.outWidth>0 && bounds.outHeight>0}
     suspend fun prefetchArt(details:VideoDetails)=coroutineScope {
@@ -39,7 +39,7 @@ import javax.inject.*
         File(context.cacheDir,"mux-${row.id}.m4a").delete()
         committed
     }
-    suspend fun finish(row:DownloadEntity,options:DownloadOptions,details:VideoDetails,plan:QualityOption,video:File?,audio:File?,requestedCuts:List<Cut> = emptyList()):List<Cut> =withContext(Dispatchers.IO) {
+    suspend fun finish(row:DownloadEntity,options:DownloadOptions,details:VideoDetails,plan:QualityOption,video:File?,audio:File?,requestedCuts:List<Cut> = emptyList(),annotations:con.themralex.astrayt.timeline.TimelineCapture=con.themralex.astrayt.timeline.TimelineCapture(emptyList(),emptyList(),"")):List<Cut> =withContext(Dispatchers.IO) {
         val audioOnly=options.audioOnly;val mime=if(audioOnly)if(plan.container=="webm")"audio/webm"else"audio/mp4" else if(plan.container=="webm")"video/webm"else"video/mp4"
         val name=details.title.replace(Regex("[\\/:*?\"<>|]"),"_").take(120)+"."+plan.container
         var legacy:File?=null
@@ -72,6 +72,7 @@ import javax.inject.*
             val previous=dao.byYoutubeId(row.ytId)
             dao.insertVideo(VideoEntity(id=previous?.id ?: 0,positionMs=previous?.positionMs?.let{CutTimeline.outputTime(it*1000,cuts)?.div(1000) ?: 0}?.coerceAtMost((details.durationMs-removedMs).coerceAtLeast(0)) ?: 0,ytId=row.ytId,title=details.title,channelId=details.channelId,channelName=details.channelName,channelAvatarPath=avatar?.absolutePath.orEmpty(),thumbnailPath=thumb?.absolutePath.orEmpty(),durationMs=(details.durationMs-removedMs).coerceAtLeast(0),viewCount=details.viewCount,uploadDateMs=details.uploadDateMs,description=details.description,contentUri=uri.toString(),fileSizeBytes=size,mimeType=mime,height=plan.height,kind=row.kind,audioLangTag=options.audioLanguage ?: details.tracks.firstOrNull{it.id==options.trackId}?.locale.orEmpty(),audioLabel=options.audioLabel ?: details.tracks.firstOrNull{it.id==options.trackId}?.displayName.orEmpty(),dominantColor=color,likeCount=details.likeCount,removedDurationMs=removedMs))
             subtitles.saveTimeline(row.ytId,cuts)
+            timelines.save(row.ytId,uri.toString(),annotations,cuts,details.durationMs)
             previous?.takeIf{it.contentUri!=uri.toString()}?.let{old->runCatching{context.contentResolver.delete(Uri.parse(old.contentUri),null,null)}}
             }
         };cuts}catch(e:Exception){withContext(NonCancellable){
@@ -187,6 +188,7 @@ import javax.inject.*
         val old=dao.video(id) ?: return@withContext
         require(old.ytId==details.ytId)
         val merged=MetadataMerge.fill(old,details)
+        val annotations=timelines.recognize(details)
         val repairId=System.currentTimeMillis()
         val art=File(context.filesDir,"art").apply{mkdirs()}
         coroutineScope {
@@ -194,6 +196,7 @@ import javax.inject.*
             val avatar=async{if(validArt(File(old.channelAvatarPath)))File(old.channelAvatarPath)else saveArt(details.channelAvatar,File(art,"channel-${merged.channelId.hashCode()}-repair-$repairId.webp"),192)}
             dao.patchMetadata(id,merged.title,merged.channelId,merged.channelName,merged.description,merged.viewCount,merged.uploadDateMs,merged.likeCount,thumb.await()?.absolutePath ?: old.thumbnailPath,avatar.await()?.absolutePath ?: old.channelAvatarPath,old.dominantColor)
         }
+        if(old.removedDurationMs==0L || subtitles.timeline(old.ytId).isNotEmpty())timelines.save(old.ytId,old.contentUri,annotations,subtitles.timeline(old.ytId),details.durationMs)
     }
     suspend fun pruneMissing()=withContext(Dispatchers.IO) {
         val videos=dao.allVideos()
@@ -208,5 +211,5 @@ import javax.inject.*
             }
         }
     }
-    suspend fun delete(video:VideoEntity)=withContext(Dispatchers.IO){File(context.filesDir,"subtitles/${video.ytId}").deleteRecursively();context.contentResolver.delete(Uri.parse(video.contentUri),null,null);File(video.thumbnailPath).takeIf{it.isFile}?.delete();dao.deleteVideo(video.id)}
+    suspend fun delete(video:VideoEntity)=withContext(Dispatchers.IO){timelines.delete(video.ytId);File(context.filesDir,"subtitles/${video.ytId}").deleteRecursively();context.contentResolver.delete(Uri.parse(video.contentUri),null,null);File(video.thumbnailPath).takeIf{it.isFile}?.delete();dao.deleteVideo(video.id)}
 }

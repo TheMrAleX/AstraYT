@@ -214,6 +214,7 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                             val done=p?.done ?: row.bytesDone;val total=p?.total ?: row.bytesTotal
                             Box(Modifier.fillMaxWidth().heightIn(min=48.dp).then(if(row.id in pending)Modifier.clickable(role=Role.Button){model.undoCancel(row.id)}else Modifier),contentAlignment=Alignment.CenterStart) {
                                 if(row.id in pending)Text(stringResource(R.string.cancel_pending)+"\n"+stringResource(R.string.undo),color=c.accent,style=SingularityTheme.type.caption,minLines=2,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                else if(row.state=="DONE" && row.errorCode=="TIMELINE_DOWNLOAD")Text(stringResource(R.string.timeline_partial),color=c.warning,style=SingularityTheme.type.caption,minLines=2,maxLines=2,overflow=TextOverflow.Ellipsis)
                                 else if(row.state=="DONE" && row.errorCode=="SUBTITLE_DOWNLOAD")Text(stringResource(R.string.subtitle_failed),color=c.warning,style=SingularityTheme.type.caption,minLines=2,maxLines=2,overflow=TextOverflow.Ellipsis)
                                 else if(row.state=="FAILED")Text(stringResource(Errors.string(row.errorCode)),color=c.error,style=SingularityTheme.type.caption,minLines=2,maxLines=2,overflow=TextOverflow.Ellipsis)
                                 else Column {

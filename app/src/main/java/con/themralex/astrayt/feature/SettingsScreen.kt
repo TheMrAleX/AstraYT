@@ -51,7 +51,7 @@ import java.util.Locale
     val stateHolder = rememberSaveableStateHolder()
     val titles = mapOf("appearance" to stringResource(R.string.appearance), "audio" to stringResource(R.string.settings_audio),
         "subtitles" to stringResource(R.string.subtitles), "downloads" to stringResource(R.string.downloads),
-        "sponsorblock" to "SponsorBlock", "storage" to stringResource(R.string.storage), "about" to stringResource(R.string.about))
+        "sponsorblock" to stringResource(R.string.timeline_settings), "storage" to stringResource(R.string.storage), "about" to stringResource(R.string.about))
     BackHandler(page != "home" && sheet == null) { page = "home" }
     AnimatedContent(page, modifier = Modifier.fillMaxSize(), transitionSpec = {
         val duration = if (motion) 220 else 0
@@ -82,7 +82,7 @@ import java.util.Locale
                 SettingsGroup(title=stringResource(R.string.settings_manage)) {
                     SettingsEntry(Icons.Rounded.Downloading,stringResource(R.string.downloads),subtitle=stringResource(R.string.settings_downloads_summary,if(settings.defaultMaxQuality==Int.MAX_VALUE)stringResource(R.string.max)else "${settings.defaultMaxQuality}p",settings.maxConcurrentDownloads),onClick={page="downloads"})
                     SettingDivider()
-                    SettingsEntry(Icons.Rounded.ContentCut,"SponsorBlock",subtitle=stringResource(if(settings.sponsorBlockEnabled)R.string.settings_cuts_on else R.string.settings_cuts_off),onClick={page="sponsorblock"})
+                    SettingsEntry(Icons.Rounded.ContentCut,stringResource(R.string.timeline_settings),subtitle=stringResource(R.string.timeline_summary),onClick={page="sponsorblock"})
                     SettingDivider()
                     SettingsEntry(Icons.Rounded.Storage,stringResource(R.string.storage),subtitle=stringResource(R.string.settings_library_size,Formatters.bytes(storedBytes)),onClick={page="storage"})
                 }
@@ -161,13 +161,24 @@ import java.util.Locale
         }
         if(destination=="sponsorblock")item(key="sponsorblock",contentType="settings-group"){
             SettingsGroup {
-                SettingToggle(stringResource(R.string.sponsorblock_enable),stringResource(R.string.sponsorblock_explanation),settings.sponsorBlockEnabled){v->model.change{it.copy(sponsorBlockEnabled=v)}}
-                AnimatedVisibility(settings.sponsorBlockEnabled,enter=fadeIn(tween(if(SingularityTheme.motion.enabled)180 else 0))+expandVertically(tween(if(SingularityTheme.motion.enabled)220 else 0)),exit=fadeOut(tween(if(SingularityTheme.motion.enabled)140 else 0))+shrinkVertically(tween(if(SingularityTheme.motion.enabled)180 else 0))){Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+                SettingToggle(stringResource(R.string.chapter_recognition),stringResource(R.string.chapter_recognition_body),settings.chapterRecognitionEnabled){v->model.change{it.copy(chapterRecognitionEnabled=v)}}
+                SettingDivider()
+                SettingToggle(stringResource(R.string.sponsor_recognition),stringResource(R.string.timeline_offline),settings.sponsorRecognitionEnabled){v->model.change{it.copy(sponsorRecognitionEnabled=v)}}
+                if(settings.sponsorRecognitionEnabled){
+                    SettingDivider()
+                    SettingToggle(stringResource(R.string.sponsor_skip),stringResource(R.string.sponsor_skip_body),settings.sponsorSkipEnabled){v->model.change{it.copy(sponsorSkipEnabled=v)}}
+                }
+                if(settings.sponsorRecognitionEnabled || settings.sponsorBlockEnabled){
                     listOf("sponsor" to R.string.sb_sponsor,"intro" to R.string.sb_intro,"outro" to R.string.sb_outro,"selfpromo" to R.string.sb_selfpromo,"interaction" to R.string.sb_interaction,"music_offtopic" to R.string.sb_music,"preview" to R.string.sb_preview,"filler" to R.string.sb_filler).forEach{(key,label)->
-                        SettingDivider();SettingToggle(stringResource(label),"",key in settings.sponsorBlockCategories){v->model.change{it.copy(sponsorBlockCategories=if(v)it.sponsorBlockCategories+key else it.sponsorBlockCategories-key)}}
+                        SettingDivider()
+                        Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                            Box(Modifier.size(8.dp).background(Color(con.themralex.astrayt.timeline.TimelinePolicy.colors.getValue(key)),CircleShape))
+                            Box(Modifier.weight(1f)){SettingToggle(stringResource(label),"",key in settings.sponsorBlockCategories){v->model.change{it.copy(sponsorBlockCategories=if(v)it.sponsorBlockCategories+key else it.sponsorBlockCategories-key)}}}
+                        }
                     }
-                    Text(stringResource(R.string.sponsorblock_cuts),color=c.mid,style=SingularityTheme.type.label)
-                }}
+                }
+                SettingDivider()
+                SettingToggle(stringResource(R.string.sponsorblock_enable),stringResource(R.string.sponsorblock_cuts),settings.sponsorBlockEnabled){v->model.change{it.copy(sponsorBlockEnabled=v)}}
             }
         }
         if(destination=="storage")item(key="storage",contentType="settings-group"){

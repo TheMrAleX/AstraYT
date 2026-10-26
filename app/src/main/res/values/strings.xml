@@ -296,4 +296,18 @@
     <string name="settings_cuts_off">Sin recortes automáticos</string>
     <string name="player_no_audio_tracks">Este archivo no tiene pistas de audio disponibles.</string>
     <string name="player_speed_boost">2×</string>
+    <string name="timeline_settings">Capítulos y SponsorBlock</string>
+    <string name="timeline_summary">Secciones y segmentos sin conexión</string>
+    <string name="chapter_recognition">Reconocer capítulos</string>
+    <string name="chapter_recognition_body">Guarda los capítulos del creador en el idioma de la app y divide la barra de reproducción.</string>
+    <string name="sponsor_recognition">Reconocer SponsorBlock</string>
+    <string name="timeline_offline">Se guarda al descargar o actualizar los metadatos del vídeo. Después funciona sin conexión. Elige las categorías que quieres ver.</string>
+    <string name="sponsor_skip">Saltar segmentos de SponsorBlock</string>
+    <string name="sponsor_skip_body">Omite las categorías seleccionadas durante la reproducción, sin recortar el archivo.</string>
+    <string name="sb_sponsor_skipped">Anuncio omitido</string>
+    <string name="sb_intro_skipped">Introducción omitida</string>
+    <string name="sb_outro_skipped">Cierre omitido</string>
+    <string name="sb_segment_skipped">Segmento omitido</string>
+    <string name="timeline_partial">Vídeo guardado. No se pudo guardar SponsorBlock; actualiza los metadatos con conexión para reintentar.</string>
+    <string name="timeline_cut_missing">Este vídeo se recortó sin guardar su línea de tiempo. Vuelve a descargarlo para reconocer capítulos y segmentos con precisión.</string>
 </resources>
