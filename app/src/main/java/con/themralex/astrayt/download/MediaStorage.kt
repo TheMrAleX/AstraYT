@@ -62,7 +62,7 @@ import javax.inject.*
             else {
                 try {context.contentResolver.openFileDescriptor(uri,"rw")!!.use{fd->mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,fd.fileDescriptor,null,cuts,audioOnly,options.audioLanguage)}}
                 catch(e:kotlinx.coroutines.CancellationException){throw e}
-                catch(e:Exception){val temp=File(context.cacheDir,"mux-${row.id}.${plan.container}");try{mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,null,temp.absolutePath,cuts,audioOnly,options.audioLanguage);copyToStore(temp,uri,"wt")}finally{temp.delete()}}
+                catch(e:Exception){val temp=File(context.cacheDir,"mux-${row.id}.${plan.container}");try{mux(if(audioOnly)audio!! else video!!,if(audioOnly)null else audio,plan.container,null,temp.absolutePath,cuts,audioOnly,options.audioLanguage,batched=false);copyToStore(temp,uri,"wt")}finally{temp.delete()}}
             }
             withContext(NonCancellable){
             if(Build.VERSION.SDK_INT>=29)context.contentResolver.update(uri,ContentValues().apply{put(MediaStore.MediaColumns.IS_PENDING,0)},null,null)
@@ -103,9 +103,8 @@ import javax.inject.*
             },duration)
         }finally{extractor.release()}
     }
-    private suspend fun mux(video:File,audio:File?,container:String,fd:FileDescriptor?,path:String?,cuts:List<Cut>,audioOnly:Boolean=false,audioLanguage:String?=null) {
-        val format=if(container=="webm")MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
-        val mux=if(fd!=null)MediaMuxer(fd,format)else MediaMuxer(path!!,format)
+    private suspend fun mux(video:File,audio:File?,container:String,fd:FileDescriptor?,path:String?,cuts:List<Cut>,audioOnly:Boolean=false,audioLanguage:String?=null,batched:Boolean=true) {
+        val mux=SampleMuxer(container,fd,path,batched)
         val extractors=mutableListOf<MediaExtractor>();var started=false
         try {
             data class Input(val extractor:MediaExtractor,val tracks:Map<Int,Int>,var time:Long)
@@ -131,14 +130,14 @@ import javax.inject.*
             var buffer=ByteBuffer.allocateDirect(capacity);val info=MediaCodec.BufferInfo();var samples=0
             while(true){
                 currentCoroutineContext().ensureActive()
-                val next=inputs.filter{it.time>=0}.minByOrNull{it.time} ?: break
-                val other=inputs.filter{it!==next && it.time>=0}.minOfOrNull{it.time}
+                val next=inputs.minByOrNull{if(it.time>=0)it.time else Long.MAX_VALUE}?.takeIf{it.time>=0} ?: break
+                val other=inputs.firstOrNull{it!==next && it.time>=0}?.time
                 val limit=MuxSchedule.batchEnd(next.time,other)
                 val extractor=next.extractor
                 do {
                     if(++samples%64==0)currentCoroutineContext().ensureActive()
                     val original=next.time
-                    val output=CutTimeline.outputTime(original,cuts)
+                    val output=if(cuts.isEmpty())original else CutTimeline.outputTime(original,cuts)
                     if(output==null){
                         val end=cuts.first{original>=it.startUs && original<it.endUs}.endUs
                         extractor.seekTo(end,MediaExtractor.SEEK_TO_CLOSEST_SYNC)
@@ -160,7 +159,7 @@ import javax.inject.*
                 }while(next.time>=0 && next.time<limit)
             }
             mux.stop();started=false
-        }finally{if(started)runCatching{mux.stop()};mux.release();extractors.forEach{it.release()}}
+        }finally{if(started)runCatching{mux.stop()};try{mux.release()}finally{extractors.forEach{it.release()}}}
     }
     private suspend fun saveArt(url:String,file:File,width:Int):File?=artLocks[(file.absolutePath.hashCode() and Int.MAX_VALUE)%artLocks.size].withLock {
         if(validArt(file))return@withLock file

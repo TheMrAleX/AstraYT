@@ -95,18 +95,25 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
         val copied=withContext(Dispatchers.IO) {
             val dir=File(context.filesDir,"subtitles/${video.ytId}").apply{mkdirs()}
             val file=File(dir,SubtitleFiles.fileName(name,System.nanoTime()))
-            try {context.contentResolver.openInputStream(uri)?.use{input->file.outputStream().use{output->val buffer=ByteArray(16384);var count=0L;while(true){currentCoroutineContext().ensureActive();val n=input.read(buffer);if(n<0)break;count+=n;if(count>10*1024*1024)throw java.io.IOException("SUBTITLE_SIZE");output.write(buffer,0,n)}}} ?: throw java.io.IOException("STORAGE");file}
-            catch(e:Exception){file.delete();throw e}
+            val part=File(dir,file.name+".part")
+            try {
+                val bytes=context.contentResolver.openInputStream(uri)?.use{input->
+                    val output=java.io.ByteArrayOutputStream();val buffer=ByteArray(16384)
+                    while(true){currentCoroutineContext().ensureActive();val n=input.read(buffer);if(n<0)break
+                        if(output.size()+n>10*1024*1024)throw java.io.IOException("SUBTITLE_SIZE")
+                        output.write(buffer,0,n)}
+                    output.toByteArray()
+                } ?: throw java.io.IOException("STORAGE")
+                val text=SubtitleFiles.utf8(bytes)
+                if(text.isBlank())throw java.io.IOException("SUBTITLE_FORMAT")
+                if(mime==MimeTypes.APPLICATION_SUBRIP || mime==MimeTypes.TEXT_VTT)part.writeText(text)else part.writeBytes(bytes)
+                if(!part.renameTo(file))throw java.io.IOException("STORAGE")
+                file
+            }finally{part.delete()}
         }
         // The picker may return after the queue has advanced to another video.
         if(media.currentMediaItem?.mediaId!=video.id.toString()){copied.delete();return}
-        val position=media.currentPosition;val playing=media.playWhenReady
-        val current=media.currentMediaItem ?: return
-        val config=MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(copied)).setMimeType(mime).setLabel(name.take(120)).setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build()
-        val item=current.buildUpon().setSubtitleConfigurations(current.localConfiguration?.subtitleConfigurations.orEmpty()+config).build()
-        media.replaceMediaItem(media.currentMediaItemIndex,item)
-        media.seekTo(position);media.prepare();media.playWhenReady=playing
-        media.trackSelectionParameters=media.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT,false).setSelectUndeterminedTextLanguage(true).build()
+        reloadSubtitles(video.id)
     }
     private suspend fun savedSubtitles(video:VideoEntity):List<MediaItem.SubtitleConfiguration> = withContext(Dispatchers.IO) {
         File(context.filesDir,"subtitles/${video.ytId}").listFiles()?.filter{it.isFile && SubtitleFiles.mimeType(it.name)!=null}?.sortedByDescending{it.lastModified()}?.mapIndexedNotNull { position,file->
@@ -114,7 +121,7 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
             val downloaded=file.name.startsWith("download-")
             val language=if(downloaded)file.name.removePrefix("download-").substringBeforeLast('-')else null
             val label=if(language!=null)Locale.forLanguageTag(language).displayName+if(file.name.endsWith("-auto.srt"))" · "+context.getString(R.string.subtitle_automatic)else ""else file.name.substringAfter('-')
-            MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(file)).setMimeType(mime).setSelectionFlags(if(position==0)C.SELECTION_FLAG_DEFAULT else 0).setLabel(label).apply{if(language!=null)setLanguage(language)}.build()
+            MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(file)).setId(file.name).setMimeType(mime).setSelectionFlags(if(position==0)C.SELECTION_FLAG_DEFAULT else 0).setLabel(label).apply{if(language!=null)setLanguage(language)}.build()
         }.orEmpty()
     }
     suspend fun refreshMetadata(id:Long){
@@ -125,13 +132,19 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
     suspend fun reloadSubtitles(id:Long)=selection.withLock {
         val media=controller ?: return@withLock
         val video=state.value.video?.takeIf{it.id==id} ?: return@withLock
-        val config=savedSubtitles(video)
         if(media.currentMediaItem?.mediaId!=id.toString())return@withLock
         val position=media.currentPosition;val playing=media.playWhenReady
-        val item=media.currentMediaItem ?: return@withLock
-        media.replaceMediaItem(media.currentMediaItemIndex,item.buildUpon().setSubtitleConfigurations(config).build())
-        media.seekTo(position);media.prepare();media.playWhenReady=playing
-        media.trackSelectionParameters=media.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT,false).setSelectUndeterminedTextLanguage(true).build()
+        // replaceMediaItem can update Progressive/MergingMediaSource in place without
+        // creating the new subtitle sources. Rebuild from our own URI and saved files:
+        // controller timeline items may omit LocalConfiguration across the session.
+        preparing=true
+        try {
+            setQueue(media,video,position)
+            media.trackSelectionParameters=media.trackSelectionParameters.buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT,false)
+                .setSelectUndeterminedTextLanguage(true).build()
+            media.prepare();media.playWhenReady=playing
+        }finally{preparing=false;update(media)}
     }
     suspend fun play(video:VideoEntity,all:List<VideoEntity> = listOf(video),audioOnly:Boolean=false)=selection.withLock {
         val previous=_state.value
@@ -144,6 +157,9 @@ data class PlaybackState(val video:VideoEntity?=null,val playing:Boolean=false,v
             previous.video?.let{dao.position(it.id,previous.position)}
             val media=connect();playlist=all.ifEmpty{listOf(video)}.let{if(it.none{row->row.id==video.id})listOf(video)+it else it}
             setQueue(media,video,position)
+            media.trackSelectionParameters=media.trackSelectionParameters.buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT,false)
+                .setSelectUndeterminedTextLanguage(true).build()
             setAudioOnly(audioOnly);media.prepare();media.play()
         }catch(e:CancellationException){throw e}catch(_:Exception){
             _state.value=_state.value.copy(buffering=false,playing=false,playWhenReady=false,errorCode=PlaybackException.ERROR_CODE_IO_UNSPECIFIED)

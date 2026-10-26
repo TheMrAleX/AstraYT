@@ -13,8 +13,8 @@ android {
         applicationId = "con.themralex.astrayt"
         minSdk = 26
         targetSdk = 36
-        versionCode = providers.gradleProperty("appVersionCode").orElse("15").get().toInt()
-        versionName = providers.gradleProperty("appVersionName").orElse("0.1.5").get()
+        versionCode = providers.gradleProperty("appVersionCode").orElse("10016").get().toInt()
+        versionName = providers.gradleProperty("appVersionName").orElse("0.1.6").get()
         buildConfigField("String", "GITHUB_REPOSITORY", "\"${System.getenv("GITHUB_REPOSITORY") ?: "TheMrAleX/AstraYT"}\"")
         vectorDrawables.useSupportLibrary = true
     }
@@ -71,6 +71,7 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.session)
     implementation(libs.media3.ui)
+    implementation(libs.media3.muxer)
     implementation(libs.core)
     implementation(libs.splash)
     implementation(libs.profile)
