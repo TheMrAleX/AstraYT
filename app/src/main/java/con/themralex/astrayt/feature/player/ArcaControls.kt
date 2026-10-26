@@ -4,6 +4,8 @@ package con.themralex.astrayt.feature.player
 // Arca's gesture arbitration, release-safe speed boost and buffered seek bar, with YouTube styling.
 import android.app.Activity
 import android.media.AudioManager
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
@@ -92,7 +94,17 @@ private data class DragState(val mode:DragMode,val value:Float=0f,val target:Lon
                 if(!disabled && !boosted){change.consume();distance=(distance+dy).coerceAtLeast(0f);minimizeDrag(distance)}
             })
         })) {
-        val label=when{boosted->"2×";drag?.mode==DragMode.SEEK->Formatters.duration(drag!!.target);drag!=null->stringResource(if(drag!!.mode==DragMode.BRIGHTNESS)R.string.brightness else R.string.volume)+" ${(drag!!.value*100).toInt()} %";else->null}
+        val motion=SingularityTheme.motion.enabled
+        AnimatedVisibility(boosted,modifier=Modifier.align(Alignment.TopCenter).padding(top=if(immersive)24.dp else 12.dp),
+            enter=if(motion)fadeIn(tween(120))+slideInVertically(tween(160)){-it/3}else EnterTransition.None,
+            exit=if(motion)fadeOut(tween(100))else ExitTransition.None) {
+            Row(Modifier.playerGlass(RoundedCornerShape(10.dp),strong=true).padding(horizontal=10.dp,vertical=5.dp),
+                verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+                Icon(Icons.Rounded.FastForward,null,tint=Color.White.copy(alpha=.9f),modifier=Modifier.size(16.dp))
+                Text(stringResource(R.string.player_speed_boost),color=Color.White,style=SingularityTheme.type.caption.copy(fontFeatureSettings="tnum"))
+            }
+        }
+        val label=when{drag?.mode==DragMode.SEEK->Formatters.duration(drag!!.target);drag!=null->stringResource(if(drag!!.mode==DragMode.BRIGHTNESS)R.string.brightness else R.string.volume)+" ${(drag!!.value*100).toInt()} %";else->null}
         if(label!=null)Column(Modifier.align(Alignment.Center).widthIn(min=112.dp,max=220.dp).playerGlass(RoundedCornerShape(14.dp),strong=true).padding(horizontal=18.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp),horizontalAlignment=Alignment.CenterHorizontally){
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
                 if(drag?.mode==DragMode.BRIGHTNESS || drag?.mode==DragMode.VOLUME)Icon(if(drag?.mode==DragMode.BRIGHTNESS)Icons.Rounded.Brightness6 else Icons.Rounded.VolumeUp,null,tint=Color.White,modifier=Modifier.size(20.dp))

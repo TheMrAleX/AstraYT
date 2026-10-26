@@ -28,7 +28,7 @@ private val bodyFont=FontFamily(Font(R.font.inter))
     val eyebrow: TextStyle = TextStyle(fontFamily=bodyFont,fontSize=12.sp, lineHeight=17.sp, fontWeight=FontWeight.SemiBold, letterSpacing=1.2.sp)
 )
 @Immutable data class SingularityShapes(val xs: Dp=8.dp,val sm: Dp=12.dp,val md: Dp=16.dp,val lg: Dp=22.dp,val xl: Dp=28.dp)
-@Immutable data class SingularityMotion(val enabled: Boolean=true,val short: Int=120,val standard: Int=220,val emphasized: Int=360,val long: Int=600)
+@Immutable data class SingularityMotion(val enabled: Boolean=true,val short: Int=120,val standard: Int=220,val emphasized: Int=360,val long: Int=600,val ambientEnabled:Boolean=enabled,val progressEnabled:Boolean=true)
 private val LocalColors=staticCompositionLocalOf { SingularityColors() }
 private val LocalType=staticCompositionLocalOf { SingularityType() }
 private val LocalMotion=staticCompositionLocalOf { SingularityMotion() }
@@ -38,9 +38,9 @@ object SingularityTheme {
     val shapes=SingularityShapes()
     val motion: SingularityMotion @Composable get()=LocalMotion.current
 }
-@Composable fun AstraTheme(pureBlack: Boolean=false, preset: String="EMBER", animations: Boolean=true, content: @Composable ()->Unit) {
+@Composable fun AstraTheme(pureBlack: Boolean=false, preset: String="EMBER", animations: Boolean=true, ambientAnimations:Boolean=animations, progressAnimations:Boolean=true, content: @Composable ()->Unit) {
     val c=SingularityColors(void=if(pureBlack) Color.Black else Color(0xFF08090B), accent=when(preset){"PLASMA"->Color(0xFFD48FA7);"BLUESHIFT"->Color(0xFF8BAADC);else->Color(0xFFEBA66C)})
-    CompositionLocalProvider(LocalColors provides c,LocalType provides SingularityType(),LocalMotion provides SingularityMotion(animations)) {
+    CompositionLocalProvider(LocalColors provides c,LocalType provides SingularityType(),LocalMotion provides SingularityMotion(animations,ambientEnabled=ambientAnimations,progressEnabled=progressAnimations)) {
         val t=SingularityType()
         MaterialTheme(typography=Typography(bodyLarge=t.body,bodyMedium=t.body,bodySmall=t.caption,titleLarge=t.title,titleMedium=t.small,labelLarge=t.label),colorScheme=darkColorScheme(primary=c.accent, onPrimary=c.void, background=c.void,onBackground=c.text,surface=c.surface,onSurface=c.text,error=c.error), content=content)
     }

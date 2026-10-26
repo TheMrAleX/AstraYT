@@ -43,20 +43,21 @@ import kotlin.random.Random
     androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(con.themralex.astrayt.R.drawable.astra_logo),null,modifier,contentScale=androidx.compose.ui.layout.ContentScale.Fit)
 }
 @Composable fun BlackHoleHero(size:Dp=220.dp,animate:Boolean=true) {
-    val enabled=animate && SingularityTheme.motion.enabled
+    val enabled=animate && SingularityTheme.motion.ambientEnabled
     val scale=if(enabled)rememberInfiniteTransition(label="horizon").animateFloat(.96f,1f,infiniteRepeatable(tween(5000,easing=FastOutSlowInEasing),RepeatMode.Reverse),label="light").value else 1f
     AstraLogo(Modifier.size(size).graphicsLayer{scaleX=scale;scaleY=scale}.clearAndSetSemantics {})
 }
 
 @Composable fun IndeterminateProgressLine(modifier:Modifier=Modifier) {
     val c=SingularityTheme.colors
-    val enabled=SingularityTheme.motion.enabled
-    val phase=if(enabled)rememberInfiniteTransition(label="flow").animateFloat(0f,1f,infiniteRepeatable(tween(1800,easing=LinearEasing)),label="travel").value else .35f
+    val enabled=SingularityTheme.motion.progressEnabled
+    val phase=if(enabled)rememberInfiniteTransition(label="flow").animateFloat(0f,1f,infiniteRepeatable(tween(1500,easing=LinearEasing)),label="travel")else null
     Canvas(modifier.fillMaxWidth().height(3.dp).clip(CircleShape).semantics{progressBarRangeInfo=ProgressBarRangeInfo.Indeterminate}) {
         drawRoundRect(c.hairline,cornerRadius=CornerRadius(size.height/2))
+        val position=phase?.value ?: .5f
         clipRect {
             repeat(if(enabled)2 else 1){index->
-                val p=(phase+index*.5f)%1f
+                val p=(position+index*.5f)%1f
                 val width=size.width*.3f
                 val x=(p*1.3f-.3f)*size.width
                 drawRoundRect(Brush.horizontalGradient(listOf(c.accent.copy(alpha=.25f),c.accent,c.corona),x,x+width),Offset(x,0f),Size(width,size.height),CornerRadius(size.height/2))
@@ -67,20 +68,23 @@ import kotlin.random.Random
 
 @Composable fun AccretionRing(progress: Float, size: Dp=56.dp, state: String="active", modifier: Modifier=Modifier) {
     val c=SingularityTheme.colors
-    val rotation=if(state=="indeterminate" && SingularityTheme.motion.enabled) rememberInfiniteTransition(label="progress").animateFloat(0f,360f,infiniteRepeatable(tween(1100,easing=LinearEasing)),label="spin").value else -90f
-    Box(modifier.size(size).semantics { progressBarRangeInfo=ProgressBarRangeInfo(progress.coerceIn(0f,1f),0f..1f) },contentAlignment=Alignment.Center) {
+    val indeterminate=state=="indeterminate"
+    val rotation=if(indeterminate && SingularityTheme.motion.progressEnabled)rememberInfiniteTransition(label="progress").animateFloat(0f,360f,infiniteRepeatable(tween(1100,easing=LinearEasing)),label="spin")else null
+    Box(modifier.size(size).semantics { progressBarRangeInfo=if(indeterminate)ProgressBarRangeInfo.Indeterminate else ProgressBarRangeInfo(progress.coerceIn(0f,1f),0f..1f) },contentAlignment=Alignment.Center) {
         Canvas(Modifier.fillMaxSize().padding(4.dp)) {
-            val width=2.dp.toPx();val arc=if(state=="indeterminate")90f else progress.coerceIn(0f,1f)*360f
+            val width=2.dp.toPx();val arc=if(indeterminate)100f else progress.coerceIn(0f,1f)*360f
             drawArc(c.hairline,0f,360f,false,style=Stroke(width))
             val brush=when(state){"paused"->Brush.linearGradient(listOf(c.low,c.low));"error"->Brush.linearGradient(listOf(c.error,c.error));"done"->Brush.linearGradient(listOf(c.success,c.success));else->Brush.linearGradient(listOf(c.accent,c.corona))}
-            drawArc(brush,rotation,arc,false,style=Stroke(width,cap=StrokeCap.Round))
+            drawArc(brush,rotation?.value ?: -90f,arc,false,style=Stroke(width,cap=StrokeCap.Round))
         }
         Text(when(state){"paused"->"Ⅱ";"error"->"!";"done"->"✓";"indeterminate"->"";else->"${(progress*100).toInt()}"},color=c.text,style=SingularityTheme.type.label.copy(fontFeatureSettings="tnum"))
     }
 }
 @Composable fun AccretionProgressBar(progress: Float,modifier: Modifier=Modifier,height: Dp=3.dp) {
     val c=SingularityTheme.colors
-    Box(modifier.fillMaxWidth().height(height).clip(CircleShape).background(c.hairline)) { Box(Modifier.fillMaxWidth(progress.coerceIn(0f,1f)).fillMaxHeight().background(c.linear)) }
+    val target=progress.coerceIn(0f,1f)
+    val value by animateFloatAsState(target,if(SingularityTheme.motion.enabled)tween(180,easing=LinearEasing)else snap(),label="progress-value")
+    Box(modifier.fillMaxWidth().height(height).clip(CircleShape).background(c.hairline).semantics{progressBarRangeInfo=ProgressBarRangeInfo(target,0f..1f)}) { Box(Modifier.fillMaxWidth(value.coerceIn(0f,1f)).fillMaxHeight().background(c.linear)) }
 }
 @Composable fun SingularityButton(text: String,onClick: ()->Unit,modifier: Modifier=Modifier,variant: String="primary",enabled: Boolean=true,loading: Boolean=false) {
     val c=SingularityTheme.colors;val shape=RoundedCornerShape(14.dp)
@@ -218,7 +222,7 @@ import kotlin.random.Random
 }
 @Composable fun Skeleton(modifier: Modifier=Modifier) {
     val c=SingularityTheme.colors
-    val enabled=SingularityTheme.motion.enabled
+    val enabled=SingularityTheme.motion.ambientEnabled
     val phase=if(enabled)rememberInfiniteTransition(label="skeleton").animateFloat(-1f,2f,infiniteRepeatable(tween(1200,easing=LinearEasing)),label="shimmer") else remember{mutableFloatStateOf(0f)}
     Box(modifier.clip(RoundedCornerShape(16.dp)).background(c.high).drawWithCache {
         val brush=Brush.horizontalGradient(listOf(Color.Transparent,c.top.copy(alpha=.7f),Color.Transparent),0f,size.width)

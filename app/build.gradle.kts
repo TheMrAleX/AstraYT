@@ -13,8 +13,8 @@ android {
         applicationId = "con.themralex.astrayt"
         minSdk = 26
         targetSdk = 36
-        versionCode = providers.gradleProperty("appVersionCode").orElse("10016").get().toInt()
-        versionName = providers.gradleProperty("appVersionName").orElse("0.1.6").get()
+        versionCode = providers.gradleProperty("appVersionCode").orElse("10017").get().toInt()
+        versionName = providers.gradleProperty("appVersionName").orElse("0.1.7").get()
         buildConfigField("String", "GITHUB_REPOSITORY", "\"${System.getenv("GITHUB_REPOSITORY") ?: "TheMrAleX/AstraYT"}\"")
         vectorDrawables.useSupportLibrary = true
     }

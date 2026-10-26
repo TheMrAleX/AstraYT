@@ -210,7 +210,7 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                                 Text(stringResource(stateResource(row.state)),color=statusColor,style=SingularityTheme.type.label,modifier=Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis)
                                 if(row.state in setOf("DOWNLOADING","PAUSED"))Text("${(fraction*100).toInt()} %",color=c.text,style=SingularityTheme.type.label.copy(fontFeatureSettings="tnum"))
                             }
-                            if(row.state in setOf("FETCHING","MUXING","SUBTITLES","WAITING_NETWORK"))QueueActivityLine()else AccretionProgressBar(if(row.state=="DONE")1f else fraction,height=3.dp)
+                            if(row.state in setOf("FETCHING","MUXING","SUBTITLES","WAITING_NETWORK") || (row.state=="DOWNLOADING" && (p?.total ?: row.bytesTotal)<=0))QueueActivityLine()else AccretionProgressBar(if(row.state=="DONE")1f else fraction,height=3.dp)
                             val done=p?.done ?: row.bytesDone;val total=p?.total ?: row.bytesTotal
                             Box(Modifier.fillMaxWidth().heightIn(min=48.dp).then(if(row.id in pending)Modifier.clickable(role=Role.Button){model.undoCancel(row.id)}else Modifier),contentAlignment=Alignment.CenterStart) {
                                 if(row.id in pending)Text(stringResource(R.string.cancel_pending)+"\n"+stringResource(R.string.undo),color=c.accent,style=SingularityTheme.type.caption,minLines=2,maxLines=2,overflow=TextOverflow.Ellipsis)

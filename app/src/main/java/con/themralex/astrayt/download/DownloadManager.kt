@@ -62,7 +62,30 @@ private class StreamExpired:IOException()
         connectivity.registerDefaultNetworkCallback(object:ConnectivityManager.NetworkCallback(){override fun onAvailable(network:Network){this@DownloadManager.network.value=true};override fun onLost(network:Network){this@DownloadManager.network.value=false};override fun onCapabilitiesChanged(network:Network,capabilities:NetworkCapabilities){this@DownloadManager.network.value=capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}})
         network.value=online(false);ready=true
         scope.launch {combine(dao.downloads(),preferences.flow){rows,prefs->rows to prefs}.collect{(rows,prefs)->schedule(rows,prefs)}}
-        scope.launch {val meters=mutableMapOf<Long,TransferMeter>();var tick=0;while(isActive){delay(250);val now=System.currentTimeMillis();_progress.value=counters.mapValues{(id,c)->val done=c.first.get();val total=c.second.get();val(speed,eta)=meters.getOrPut(id){TransferMeter()}.sample(now,done,total);Progress(done,total,speed,eta)};if(++tick%8==0)counters.forEach{(id,c)->dao.progress(id,c.first.get(),c.second.get())};meters.keys.retainAll(counters.keys)}}
+        scope.launch {
+            val meters=mutableMapOf<Long,TransferMeter>()
+            while(isActive){
+                delay(250)
+                val now=android.os.SystemClock.elapsedRealtime()
+                _progress.value=counters.mapValues{(id,c)->
+                    val done=c.first.get();val total=c.second.get()
+                    val(speed,eta)=meters.getOrPut(id){TransferMeter()}.sample(now,done,total)
+                    Progress(done,total,speed,eta)
+                }
+                meters.keys.retainAll(counters.keys)
+            }
+        }
+        // Database latency/failure must not stop the independent visual sampler.
+        scope.launch {
+            while(isActive){
+                delay(2000)
+                counters.forEach{(id,c)->
+                    try{dao.progress(id,c.first.get(),c.second.get())}
+                    catch(e:CancellationException){throw e}
+                    catch(_:Exception){ /* Retry the next snapshot; chunk checkpoints remain durable. */ }
+                }
+            }
+        }
     }
     private fun recoveredSubtitleWarning(row:DownloadEntity):String? {
         val options=runCatching{Json.decodeFromString<DownloadOptions>(row.optionsJson)}.getOrNull() ?: return null

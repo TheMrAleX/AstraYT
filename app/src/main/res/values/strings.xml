@@ -295,4 +295,5 @@
     <string name="settings_cuts_on">Recortes activados</string>
     <string name="settings_cuts_off">Sin recortes automáticos</string>
     <string name="player_no_audio_tracks">Este archivo no tiene pistas de audio disponibles.</string>
+    <string name="player_speed_boost">2×</string>
 </resources>

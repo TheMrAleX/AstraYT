@@ -49,7 +49,7 @@ import con.themralex.astrayt.update.*
                 }
                 if(!snapshot.busy && snapshot.stage!="READY")SingularityIcon(Icons.Rounded.Close,stringResource(R.string.update_dismiss),{model.dismissUpdate()})else SingularityIcon(Icons.Rounded.ChevronRight,stringResource(R.string.update_details),model::openUpdate)
             }
-            if(snapshot.busy && snapshot.total>0)AccretionProgressBar((snapshot.done.toFloat()/snapshot.total).coerceIn(0f,1f),Modifier.padding(end=10.dp))else Spacer(Modifier.height(3.dp))
+            if(snapshot.busy && snapshot.total>0)AccretionProgressBar((snapshot.done.toFloat()/snapshot.total).coerceIn(0f,1f),Modifier.padding(end=10.dp))else if(snapshot.busy)IndeterminateProgressLine()else Spacer(Modifier.height(3.dp))
         }
     }
 }
@@ -112,7 +112,7 @@ import con.themralex.astrayt.update.*
                 }else if(!checking.checking && error==null)Text(stringResource(R.string.up_to_date),color=c.text,style=SingularityTheme.type.body)
                 if(snapshot.busy) {
                     Text(stringResource(when(snapshot.stage){"VERIFYING"->R.string.update_verifying;"QUEUED"->R.string.update_queued;else->R.string.update_downloading},release?.version.orEmpty()),color=c.mid,style=SingularityTheme.type.label)
-                    if(snapshot.stage=="VERIFYING" || snapshot.done==0L)IndeterminateProgressLine()else AccretionProgressBar((snapshot.done.toFloat()/snapshot.total.coerceAtLeast(1)).coerceIn(0f,1f))
+                    if(snapshot.stage=="VERIFYING" || snapshot.done==0L || snapshot.total<=0)IndeterminateProgressLine()else AccretionProgressBar((snapshot.done.toFloat()/snapshot.total.coerceAtLeast(1)).coerceIn(0f,1f))
                     Text("${Formatters.bytes(snapshot.done)} / ${Formatters.bytes(snapshot.total)}",color=c.mid,style=SingularityTheme.type.caption.copy(fontFeatureSettings="tnum"))
                     SingularityButton(stringResource(R.string.cancel),{model.cancelUpdate()},Modifier.fillMaxWidth(),variant="secondary")
                 }else {

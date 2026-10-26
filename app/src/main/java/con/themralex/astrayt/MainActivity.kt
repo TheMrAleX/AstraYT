@@ -4,7 +4,6 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.os.*
 import android.util.Rational
-import android.provider.Settings as SystemSettings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -15,7 +14,6 @@ import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.ui.*
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -24,6 +22,7 @@ import androidx.navigation.*
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.*
 import androidx.compose.animation.*
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.FastOutLinearInEasing
@@ -63,7 +62,7 @@ import javax.inject.Inject
 @Composable private fun AstraApp(shared:String,requestedScreen:String,downloadedId:Long,pip:Boolean,onConsumed:()->Unit,onPlayerVisible:(Boolean)->Unit) {
     val main:MainModel=viewModel();val capture:CaptureModel=viewModel();val queue:QueueModel=viewModel();val library:LibraryModel=viewModel();val settings:SettingsModel=viewModel();val extras:VideoExtrasModel=viewModel()
     val prefs by settings.state.collectAsStateWithLifecycle();val all by library.all.collectAsStateWithLifecycle();val playing by main.playback.state.collectAsStateWithLifecycle();val update by settings.update.collectAsStateWithLifecycle()
-    val context=LocalContext.current;val nav=rememberNavController();val entry by nav.currentBackStackEntryAsState();val destination=entry?.destination
+    val nav=rememberNavController();val entry by nav.currentBackStackEntryAsState();val destination=entry?.destination
     val isPlayer=destination?.hasRoute<PlayerRoute>()==true
     var toast by remember{mutableStateOf<Int?>(null)}
     LaunchedEffect(prefs.autoplayNext){main.playback.refreshAutoplay()}
@@ -71,16 +70,17 @@ import javax.inject.Inject
     LaunchedEffect(Unit){listOf(main,capture,queue,library,settings,extras).forEach{model->launch{model.effects.receiveAsFlow().collect{toast=it}}}}
     LaunchedEffect(toast){if(toast!=null){delay(3500);toast=null}}
     LaunchedEffect(shared,requestedScreen,downloadedId,prefs.onboardingDone){if(prefs.onboardingDone){if(shared.isNotBlank()){capture.input(shared,true)}else if(requestedScreen=="queue")nav.navigate(Queue){launchSingleTop=true}else if(requestedScreen=="player" && downloadedId>=0){main.playDownloaded(downloadedId);nav.navigate(PlayerRoute){launchSingleTop=true}};if(shared.isNotBlank() || requestedScreen.isNotBlank())onConsumed()}}
-    val manager=remember{context.getSystemService(PowerManager::class.java)}
-    val animations=prefs.animationsEnabled && !manager.isPowerSaveMode && SystemSettings.Global.getFloat(context.contentResolver,SystemSettings.Global.ANIMATOR_DURATION_SCALE,1f)>0
-    AstraTheme(prefs.amoledPureBlack,prefs.accentPreset,animations) {
+    val motion=rememberMotionOptions(prefs.animationsEnabled)
+    val animations=motion.transitions
+    AstraTheme(prefs.amoledPureBlack,prefs.accentPreset,animations,motion.ambient,motion.progress) {
         VoidBackground {
             if(!prefs.onboardingDone)OnboardingScreen(settings)
             else {
                 val density=LocalDensity.current
+                val tabTravel=with(density){32.dp.roundToPx()}
                 var dockHeight by remember{mutableStateOf(0.dp)}
                 Box(Modifier.fillMaxSize().imePadding()) {
-                    NavHost(navController=nav,startDestination=Capture,modifier=Modifier.fillMaxSize(),enterTransition={fadeIn(tween(if(animations)180 else 0))},exitTransition={fadeOut(tween(if(animations)140 else 0))},popEnterTransition={fadeIn(tween(if(animations)220 else 0))}) {
+                    NavHost(navController=nav,startDestination=Capture,modifier=Modifier.fillMaxSize(),enterTransition={tabEnter(animations,tabTravel)},exitTransition={tabExit(animations,tabTravel)},popEnterTransition={tabEnter(animations,tabTravel)},popExitTransition={tabExit(animations,tabTravel)}) {
                         composable<Capture>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){CaptureScreen(capture,prefs,all,{v->main.play(v,all);nav.navigate(PlayerRoute){launchSingleTop=true}})}}
                         composable<Queue>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){QueueScreen(queue){id->main.playDownloaded(id);nav.navigate(PlayerRoute){launchSingleTop=true}}}}
                         composable<Library>{Box(Modifier.fillMaxSize().statusBarsPadding().padding(bottom=dockHeight)){LibraryScreen(library,extras,{v,list,audio->main.play(v,list,audio);nav.navigate(PlayerRoute){launchSingleTop=true}},{nav.navigate(Capture)},{id->nav.navigate(ChannelRoute(id))})}}
@@ -109,4 +109,25 @@ import javax.inject.Inject
             toast?.let{Toast(stringResource(it),Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start=16.dp,end=16.dp,bottom=if(isPlayer)24.dp else 104.dp))}
         }
     }
+}
+
+private fun NavDestination.tabIndex():Int?=when {
+    hasRoute<Capture>()->0
+    hasRoute<Queue>()->1
+    hasRoute<Library>() || hasRoute<ChannelRoute>()->2
+    hasRoute<SettingsRoute>()->3
+    else->null
+}
+private val TabEasing=CubicBezierEasing(.2f,0f,0f,1f)
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabEnter(enabled:Boolean,travel:Int):EnterTransition {
+    if(!enabled)return EnterTransition.None
+    val direction=MotionPolicy.direction(initialState.destination.tabIndex(),targetState.destination.tabIndex())
+    return fadeIn(tween(220,easing=TabEasing))+if(direction==0)EnterTransition.None else
+        slideInHorizontally(tween(320,easing=TabEasing)){minOf(it/10,travel)*direction}
+}
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.tabExit(enabled:Boolean,travel:Int):ExitTransition {
+    if(!enabled)return ExitTransition.None
+    val direction=MotionPolicy.direction(initialState.destination.tabIndex(),targetState.destination.tabIndex())
+    return fadeOut(tween(160,easing=TabEasing))+if(direction==0)ExitTransition.None else
+        slideOutHorizontally(tween(280,easing=TabEasing)){-minOf(it/10,travel)*direction}
 }
