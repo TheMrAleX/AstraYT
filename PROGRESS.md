@@ -254,3 +254,9 @@ Las casillas de las siete fases permanecen abiertas porque representan la especi
 
 ### Publicación de 0.1.9 autorizada
 - El usuario solicita ahora publicar la release. Se preparan el código validado, el esquema Room 3, las dos APK firmadas y sus SHA-256. Se omite el disparo automático de otra compilación/publicación al subir el código, usando el mismo flujo de artefactos locales verificados de las versiones anteriores.
+
+### 0.1.9 publicada y verificada
+- Release pública y latest: https://github.com/TheMrAleX/AstraYT/releases/tag/v0.1.9 ; tag fuente `78cce0c89d83e17996b265f45eee71cef850e4fe`, código en main.
+- La autenticación directa de uploads.github.com rechazó la subida (HTTP 401); el workflow existente de APK verificadas publicó los artefactos firmados locales: https://github.com/TheMrAleX/AstraYT/actions/runs/40738744952 , resultado correcto.
+- Los cuatro adjuntos públicos descargados y contrastados con los originales locales en tamaño, SHA-256 y digests de GitHub. Firma original y versión 0.1.9 / versionCode 10019 conservadas en ambas arquitecturas. Rama temporal release-assets/v0.1.9 retirada después de verificar.
+- La autorización posterior de publicación sustituye la pausa histórica registrada arriba. No se subieron archivos privados de firma ni contraseñas. Pruebas reales de interfaz, Morphe, red y reproducción en Android siguen pendientes del usuario.
