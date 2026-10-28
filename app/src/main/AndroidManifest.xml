@@ -14,6 +14,8 @@
         </provider>
         <activity android:name=".MainActivity" android:exported="true" android:supportsPictureInPicture="true" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize" android:theme="@style/Theme.AstraYT.Splash">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+        </activity>
+        <activity android:name=".ExternalDownloadActivity" android:exported="true" android:excludeFromRecents="true" android:launchMode="singleTop" android:taskAffinity="" android:theme="@style/Theme.AstraYT.External">
             <intent-filter><action android:name="android.intent.action.SEND"/><category android:name="android.intent.category.DEFAULT"/><data android:mimeType="text/plain"/></intent-filter>
         </activity>
         <service android:name=".download.DownloadService" android:exported="false" android:foregroundServiceType="dataSync" />

@@ -310,4 +310,15 @@
     <string name="sb_segment_skipped">Segmento omitido</string>
     <string name="timeline_partial">Vídeo guardado. No se pudo guardar SponsorBlock; actualiza los metadatos con conexión para reintentar.</string>
     <string name="timeline_cut_missing">Este vídeo se recortó sin guardar su línea de tiempo. Vuelve a descargarlo para reconocer capítulos y segmentos con precisión.</string>
+    <string name="collections">Playlists</string>
+    <string name="collection_name">Nombre de la playlist</string>
+    <string name="save_collection">Guardar como playlist</string>
+    <string name="quality_all">Calidad para todos</string>
+    <string name="quality_all_hint">Puedes cambiar la calidad de cada vídeo debajo. Cambiar la calidad general restablece las individuales. Audio e idiomas se completan en cola según tus ajustes.</string>
+    <string name="select_none">Ninguno</string>
+    <string name="select_video">Seleccionar vídeo</string>
+    <string name="collection_empty">No se encontraron vídeos disponibles en esta lista.</string>
+    <string name="collection_completed">%1$d de %2$d completados</string>
+    <plurals name="collection_videos"><item quantity="one">%d vídeo</item><item quantity="other">%d vídeos</item></plurals>
+    <plurals name="collection_selection"><item quantity="one">%1$d de %2$d seleccionado</item><item quantity="other">%1$d de %2$d seleccionados</item></plurals>
 </resources>

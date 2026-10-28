@@ -310,4 +310,15 @@
     <string name="sb_segment_skipped">Segment skipped</string>
     <string name="timeline_partial">Video saved. SponsorBlock could not be saved; refresh metadata online to retry.</string>
     <string name="timeline_cut_missing">This video was cut without saving its timeline. Download it again to recognize chapters and segments accurately.</string>
+    <string name="collections">Playlists</string>
+    <string name="collection_name">Playlist name</string>
+    <string name="save_collection">Save as playlist</string>
+    <string name="quality_all">Quality for all videos</string>
+    <string name="quality_all_hint">Change each video’s quality below. Changing the overall quality resets individual choices. Audio and languages are resolved in the queue using your settings.</string>
+    <string name="select_none">None</string>
+    <string name="select_video">Select video</string>
+    <string name="collection_empty">No available videos were found in this list.</string>
+    <string name="collection_completed">%1$d of %2$d completed</string>
+    <plurals name="collection_videos"><item quantity="one">%d video</item><item quantity="other">%d videos</item></plurals>
+    <plurals name="collection_selection"><item quantity="one">%1$d of %2$d selected</item><item quantity="other">%1$d of %2$d selected</item></plurals>
 </resources>

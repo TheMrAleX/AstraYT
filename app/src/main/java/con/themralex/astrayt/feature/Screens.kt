@@ -117,7 +117,7 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                     if(details!=null && settings.rememberedAudioLanguage!=null && details.tracks.none{it.type!="DESCRIPTIVE" && it.locale.substringBefore('-').equals(settings.rememberedAudioLanguage.substringBefore('-'),true)})Text(stringResource(R.string.remembered_audio_missing),color=c.warning,style=SingularityTheme.type.caption)
                     if(state.audioOnly)Tag(selected?.label ?: stringResource(R.string.best_audio)) else {
                         SectionHeader(stringResource(R.string.quality))
-                        QualityGrid(selected?.height ?: state.height,model::height,if(details!=null)choices.map{it.height} else StreamPlanner.commonHeights)
+                        QualityGrid(state.height,model::height)
                         Text(stringResource(R.string.quality_fallback),color=c.mid,style=SingularityTheme.type.caption)
                         if(details!=null && (choices.maxOfOrNull{it.height} ?: 0)<720) {
                             Text(stringResource(R.string.quality_incomplete),color=c.warning,style=SingularityTheme.type.caption)
@@ -130,18 +130,10 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
             }
             state.playlist?.let { list->
                 item(key="playlist-heading",contentType="playlist-heading"){
-                    GlassCard {
-                        Text(list.title,color=c.text,style=SingularityTheme.type.title)
-                        SingularityButton(stringResource(R.string.select_all),model::selectAll,variant="secondary")
-                        SegmentedToggle(listOf(stringResource(R.string.video),stringResource(R.string.audio)),if(state.audioOnly)1 else 0,{model.kind(it==1)})
-                        if(!state.audioOnly)QualityGrid(state.height,model::height)
-                    }
+                    CollectionCaptureHeader(list,state,model)
                 }
-                items(list.entries.distinctBy{it.ytId},key={"playlist-${it.ytId}"},contentType={"playlist-video"}){entry->
-                    Row(verticalAlignment=Alignment.CenterVertically){
-                        Box(Modifier.size(48.dp).clickable{model.select(entry.ytId)}.padding(12.dp).background(if(entry.ytId in state.selected)c.accent else c.top,RoundedCornerShape(8.dp)))
-                        Box(Modifier.weight(1f)){VideoCardCompact(entry.title,entry.channel,entry.thumbnail){model.select(entry.ytId)}}
-                    }
+                itemsIndexed(list.entries.distinctBy{it.ytId},key={_,entry->"playlist-${entry.ytId}"},contentType={_,_->"playlist-video"}){index,entry->
+                    CollectionCaptureEntry(index,entry,state,model)
                 }
                 if(list.hasMore)item(key="load-more",contentType="load-more"){SingularityButton(stringResource(R.string.load_more),{model.loadMore()},variant="secondary",loading=state.loadingMore)}
             }
@@ -152,12 +144,12 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                 Text(selected?.estimatedBytes?.takeIf{it>0}?.let{Formatters.bytes(it)} ?: stringResource(R.string.unknown_size),color=c.mid,style=SingularityTheme.type.caption)
             }
             if(track!=null)Text(stringResource(R.string.selected_audio,Locale.forLanguageTag(track.locale).displayName.ifBlank{track.displayName.ifBlank{unknownLanguage}}),color=c.mid,style=SingularityTheme.type.caption,maxLines=1,overflow=TextOverflow.Ellipsis)
-            SingularityButton(if(state.playlist!=null)pluralStringResource(R.plurals.playlist_download,state.selected.size,state.selected.size)else stringResource(R.string.add_to_queue),{enqueue()},Modifier.fillMaxWidth(),enabled=!state.busy && !state.loading && ((details!=null && selected!=null && (details.tracks.isEmpty() || track!=null)) || state.playlist!=null) && (state.playlist==null || state.selected.isNotEmpty()),loading=state.busy)
+            SingularityButton(if(state.playlist!=null)pluralStringResource(R.plurals.playlist_download,state.selected.size,state.selected.size)else stringResource(R.string.add_to_queue),{enqueue()},Modifier.fillMaxWidth(),enabled=CapturePolicy.canEnqueue(state),loading=state.busy)
         }
     }
 }
 @Composable fun QueueScreen(model:QueueModel,onPlayDownload:(Long)->Unit) {
-    val rows by model.state.collectAsStateWithLifecycle();val progress by model.progress.collectAsStateWithLifecycle();val c=SingularityTheme.colors
+    val allRows by model.state.collectAsStateWithLifecycle();val rows=allRows.filter{it.playlistId==null};val playlists by model.playlists.collectAsStateWithLifecycle();val progress by model.progress.collectAsStateWithLifecycle();val c=SingularityTheme.colors
     var menu by remember{mutableStateOf<DownloadEntity?>(null)}
     var completedExpanded by rememberSaveable{mutableStateOf(false)}
     val pending by model.pending.collectAsStateWithLifecycle()
@@ -168,16 +160,19 @@ fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
                 Text(stringResource(R.string.queue),color=c.text,style=SingularityTheme.type.headline)
                 Text(stringResource(R.string.queue_subtitle),color=c.mid,style=SingularityTheme.type.body)
             }
-            if(rows.isNotEmpty()){
-                val active=rows.count{it.state in setOf("FETCHING","DOWNLOADING","MUXING","SUBTITLES")}
+            if(allRows.isNotEmpty()){
+                val active=CollectionPolicy.taskCount(allRows.filter{it.state in setOf("FETCHING","DOWNLOADING","MUXING","SUBTITLES")})
                 Row(Modifier.fillMaxWidth().heightIn(min=40.dp),verticalAlignment=Alignment.CenterVertically){
                     Text(pluralStringResource(R.plurals.queue_activity,active,active,Formatters.bytes(progress.values.sumOf{it.speed})),color=c.accent,style=SingularityTheme.type.label.copy(fontFeatureSettings="tnum"),maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){SingularityButton(stringResource(R.string.pause_all),{model.pauseAll()},variant="secondary");SingularityButton(stringResource(R.string.resume_all),{model.resumeAll()},variant="secondary");SingularityButton(stringResource(R.string.clear_done),{model.clear()},variant="tertiary")}
             }
         }
-        if(rows.isEmpty())EmptyState(stringResource(R.string.empty_queue),stringResource(R.string.empty_queue_body))
+        if(allRows.isEmpty())EmptyState(stringResource(R.string.empty_queue),stringResource(R.string.empty_queue_body))
         LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(vertical=16.dp)) {
+            items(playlists.filter{list->allRows.any{it.playlistId==list.id}},key={"collection-${it.id}"},contentType={"collection"}){list->
+                QueueCollection(list,allRows.filter{it.playlistId==list.id},progress,model,onPlayDownload)
+            }
             val groups=listOf("DOWNLOADING","FETCHING","MUXING","SUBTITLES","QUEUED","WAITING_NETWORK","PAUSED","FAILED","DONE","CANCELED")
             groups.forEach { group->val entries=rows.filter{it.state==group};if(entries.isNotEmpty()) {
                 item(key="section-$group",contentType="header"){if(group=="DONE")SettingsRow(Icons.Rounded.DoneAll,stringResource(R.string.done),value=entries.size.toString(),onClick={completedExpanded=!completedExpanded})else SectionHeader(stringResource(stateResource(group)))}
@@ -237,6 +232,10 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
 @Composable fun LibraryScreen(model:LibraryModel,extras:VideoExtrasModel,onPlay:(VideoEntity,List<VideoEntity>,Boolean)->Unit,onCapture:()->Unit,onChannel:(String)->Unit) {
     val search by model.search.collectAsStateWithLifecycle()
     val all by model.all.collectAsStateWithLifecycle()
+    val playlists by model.playlists.collectAsStateWithLifecycle()
+    val memberships by model.memberships.collectAsStateWithLifecycle()
+    var openPlaylist by rememberSaveable{mutableStateOf<Long?>(null)}
+    val collectionVideos=remember(memberships,all){CollectionPolicy.groupedVideos(memberships,all)}
     val recentSearches by model.recent.collectAsStateWithLifecycle()
     val paged=model.paged.collectAsLazyPagingItems()
     val c=SingularityTheme.colors
@@ -252,7 +251,15 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
     val channelList=all.groupBy{it.channelId}.entries.sortedByDescending{it.value.size}.take(12)
     val labels=listOf(stringResource(R.string.all),stringResource(R.string.videos),stringResource(R.string.audio),stringResource(R.string.unwatched))+channelList.map{it.value.first().channelName}
     val selectedChannel=channelList.getOrNull(filter-4)?.key
+    val visibleCollections=playlists.filter{list->
+        val videos=collectionVideos[list.id].orEmpty()
+        videos.any{v->(filter!=1 || v.kind=="VIDEO") && (filter!=2 || v.kind=="AUDIO") && (filter!=3 || v.positionMs<v.durationMs*.95) && (selectedChannel==null || v.channelId==selectedChannel) && (search.isBlank() || list.title.contains(search,true) || v.title.contains(search,true) || v.channelName.contains(search,true))}
+    }
     LaunchedEffect(filter,sort,selectedChannel){model.configure(when(filter){1->"VIDEO";2->"AUDIO";else->null},filter==3,if(filter>=4)selectedChannel else null,sort)}
+    val opened=playlists.firstOrNull{it.id==openPlaylist}
+    if(opened!=null){
+        LibraryCollection(opened,collectionVideos[opened.id].orEmpty(),{openPlaylist=null},onPlay,{menu=it})
+    }
     BackHandler(selected.isNotEmpty()){selected=emptySet()}
     fun select(video:VideoEntity){selected=if(video.id in selected)selected-video.id else selected+video.id}
     @Composable fun card(video:VideoEntity) {
@@ -263,7 +270,11 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
         }
     }
     @Composable fun header() {
-        val continued=all.filter{it.positionMs>it.durationMs*.03 && it.positionMs<it.durationMs*.95}
+        if(visibleCollections.isNotEmpty())Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            SectionHeader(stringResource(R.string.collections))
+            visibleCollections.forEach{list->val videos=collectionVideos[list.id].orEmpty();if(videos.isNotEmpty())CollectionCard(list,videos.size,videos.firstOrNull()?.thumbnailPath.orEmpty()){openPlaylist=list.id}}
+        }
+        val continued=all.filter{it.standalone}.filter{it.positionMs>it.durationMs*.03 && it.positionMs<it.durationMs*.95}
         if(continued.isNotEmpty() && search.isBlank() && filter==0)Column{SectionHeader(stringResource(R.string.continue_watching));LazyRow(horizontalArrangement=Arrangement.spacedBy(12.dp)){items(continued,key={it.id},contentType={"shelf"}){v->VideoCardShelf(v.title,v.channelName,v.thumbnailPath,Formatters.duration(v.durationMs)){onPlay(v,all,false)}}}}
     }
     @Composable fun footer(){
@@ -289,7 +300,7 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
             if(search.isBlank() && recentSearches.isNotEmpty())Row(verticalAlignment=Alignment.CenterVertically){Box(Modifier.weight(1f)){FilterChipRow(recentSearches,-1,{model.search(recentSearches[it])})};SingularityIcon(Icons.Rounded.Clear,stringResource(R.string.clear),{model.clearSearches()})}
         }
         FilterChipRow(labels,filter,{filter=it})
-        if(all.isNotEmpty() && paged.itemCount==0 && paged.loadState.refresh is LoadState.NotLoading)Text(stringResource(R.string.no_results),color=c.mid,modifier=Modifier.padding(vertical=16.dp))
+        if(all.isNotEmpty() && visibleCollections.isEmpty() && paged.itemCount==0 && paged.loadState.refresh is LoadState.NotLoading)Text(stringResource(R.string.no_results),color=c.mid,modifier=Modifier.padding(vertical=16.dp))
         if(all.isEmpty())EmptyState(stringResource(R.string.empty_library),stringResource(R.string.empty_library_body),stringResource(R.string.capture_video),onCapture)
         BoxWithConstraints(Modifier.weight(1f)) {
             if(maxWidth>=600.dp)LazyVerticalGrid(columns=GridCells.Adaptive(340.dp),verticalArrangement=Arrangement.spacedBy(20.dp),horizontalArrangement=Arrangement.spacedBy(16.dp)) {
@@ -304,7 +315,7 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
         }
     }
     if(sorting)SingularitySheet({sorting=false}){listOf(R.string.recent,R.string.title,R.string.duration,R.string.size,R.string.channel).forEachIndexed{i,id->SingularityButton(stringResource(id),{sort=i;sorting=false},variant=if(i==sort)"primary"else"secondary")}}
-    menu?.let{v->SingularitySheet({menu=null}){SheetHeading(stringResource(R.string.options),{menu=null});Text(v.title,color=c.mid,style=SingularityTheme.type.caption,maxLines=2);listOf(R.string.play,R.string.audio_only,R.string.share,R.string.open_youtube,R.string.channel,R.string.metadata_download,R.string.subtitle_download,R.string.delete).forEach{id->OptionRow(when(id){R.string.play->Icons.Rounded.PlayArrow;R.string.audio_only->Icons.Rounded.Headphones;R.string.share->Icons.Rounded.Share;R.string.open_youtube->Icons.Rounded.OpenInNew;R.string.channel->Icons.Rounded.Person;R.string.metadata_download->Icons.Rounded.Refresh;R.string.subtitle_download->Icons.Rounded.ClosedCaption;else->Icons.Rounded.DeleteOutline},stringResource(id),{when(id){R.string.play,R.string.audio_only->onPlay(v,all,id==R.string.audio_only);R.string.share->share(context,listOf(v));R.string.open_youtube->external(context,UrlParser.canonical(v.ytId));R.string.channel->onChannel(v.channelId);R.string.metadata_download->extras.refreshMetadata(v);R.string.subtitle_download->extras.openSubtitles(v);R.string.delete->deleting=listOf(v)};menu=null})}}}
+    menu?.let{v->SingularitySheet({menu=null}){SheetHeading(stringResource(R.string.options),{menu=null});Text(v.title,color=c.mid,style=SingularityTheme.type.caption,maxLines=2);listOf(R.string.play,R.string.audio_only,R.string.share,R.string.open_youtube,R.string.channel,R.string.metadata_download,R.string.subtitle_download,R.string.delete).forEach{id->OptionRow(when(id){R.string.play->Icons.Rounded.PlayArrow;R.string.audio_only->Icons.Rounded.Headphones;R.string.share->Icons.Rounded.Share;R.string.open_youtube->Icons.Rounded.OpenInNew;R.string.channel->Icons.Rounded.Person;R.string.metadata_download->Icons.Rounded.Refresh;R.string.subtitle_download->Icons.Rounded.ClosedCaption;else->Icons.Rounded.DeleteOutline},stringResource(id),{when(id){R.string.play,R.string.audio_only->onPlay(v,opened?.let{collectionVideos[it.id].orEmpty()} ?: all,id==R.string.audio_only);R.string.share->share(context,listOf(v));R.string.open_youtube->external(context,UrlParser.canonical(v.ytId));R.string.channel->onChannel(v.channelId);R.string.metadata_download->extras.refreshMetadata(v);R.string.subtitle_download->extras.openSubtitles(v);R.string.delete->deleting=listOf(v)};menu=null})}}}
     if(deleting.isNotEmpty())SingularityDialog(stringResource(R.string.delete),stringResource(R.string.delete_question),stringResource(R.string.delete),stringResource(R.string.cancel),{deleting.forEach{model.delete(it)};selected=selected-deleting.map{it.id}.toSet();deleting=emptyList()},{deleting=emptyList()})
 }
 @Composable fun ChannelScreen(id:String,all:List<VideoEntity>,onPlay:(VideoEntity,List<VideoEntity>)->Unit) {
@@ -342,7 +353,7 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
     }
 }
 @OptIn(ExperimentalLayoutApi::class)
-@Composable private fun QualityGrid(selected:Int,onSelect:(Int)->Unit,heights:List<Int> = StreamPlanner.commonHeights) {
+@Composable internal fun QualityGrid(selected:Int,onSelect:(Int)->Unit,heights:List<Int> = StreamPlanner.commonHeights) {
     val columns=if(LocalDensity.current.fontScale>1.3f)2 else 4
     FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp),maxItemsInEachRow=columns) {
         heights.distinct().sorted().forEach{height->QualityChip(when(height){1440->"2K";2160->"4K";else->"${height}p"},"",selected==height,{onSelect(height)},Modifier.weight(1f))}

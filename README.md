@@ -1,6 +1,6 @@
 # AstraYT
 Aplicación Android nativa en Kotlin y Compose. Android 8.0 o posterior.
-Paquete: `con.themralex.astrayt`. Interfaz de agujero negro, español e inglés.
+Paquete y descargador externo en Morphe: `con.themralex.astrayt`. Español e inglés.
 Compilar: `./gradlew assembleRelease`; pruebas: `./gradlew testReleaseUnitTest`.
 La firma local lee `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
 GitHub Actions usa cuatro secretos: `KEYSTORE_BASE64` (archivo codificado),

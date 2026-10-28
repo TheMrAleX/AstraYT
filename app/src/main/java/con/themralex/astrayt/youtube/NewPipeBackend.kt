@@ -7,6 +7,9 @@ import okhttp3.OkHttpClient
 import org.schabi.newpipe.extractor.*
 import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.playlist.PlaylistInfo
+import org.schabi.newpipe.extractor.channel.ChannelInfo
+import org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo
+import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
 import org.schabi.newpipe.extractor.stream.*
 import java.util.LinkedHashMap
 import org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager
@@ -17,7 +20,7 @@ import javax.inject.*
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private val mutex=Mutex()
     private val cache=BoundedCache<String,VideoDetails>(32)
-    private data class PlaylistSession(val title:String,val thumbnail:String,var page:Page?,val loaded:MutableSet<String>)
+    private data class PlaylistSession(val title:String,val thumbnail:String,var page:Page?,val loaded:MutableSet<String>,val tab:ListLinkHandler?=null)
     private val playlistSessions=BoundedCache<String,PlaylistSession>(4)
     private val flights=ExtractionRequest<VideoDetails>(scope)
     private val extractorMutex=Mutex()
@@ -79,10 +82,19 @@ import javax.inject.*
             is YoutubeLink.Video->ResolvedLink.Video(details(link.id))
             is YoutubeLink.Playlist->{init();withContext(Dispatchers.IO){extractionAttempt(){runInterruptible{
                 val canonical="https://www.youtube.com/playlist?list=${link.id}";val info=PlaylistInfo.getInfo(NewPipe.getService(0),canonical)
-                val entries=playlistEntries(info.relatedItems).take(200)
+                val entries=playlistEntries(info.relatedItems).distinctBy{it.ytId}
                 synchronized(playlistSessions){playlistSessions[canonical]=PlaylistSession(info.name,info.thumbnails.maxByOrNull{it.height}?.url.orEmpty(),info.nextPage,entries.map{it.ytId}.toMutableSet())}
-                ResolvedLink.Playlist(canonical,info.name,info.thumbnails.maxByOrNull{it.height}?.url.orEmpty(),entries,info.hasNextPage() && entries.size<200)
+                ResolvedLink.Playlist(canonical,info.name,info.thumbnails.maxByOrNull{it.height}?.url.orEmpty(),entries,info.hasNextPage())
 
+            }}}}
+            is YoutubeLink.Channel->{init();withContext(Dispatchers.IO){extractionAttempt{runInterruptible{
+                val info=ChannelInfo.getInfo(NewPipe.getService(0),link.url)
+                val tab=info.tabs.firstOrNull{it.contentFilters.contains("videos")} ?: info.tabs.firstOrNull() ?: throw IllegalStateException("NO_STREAMS")
+                val page=ChannelTabInfo.getInfo(NewPipe.getService(0),tab)
+                val entries=playlistEntries(page.relatedItems.filterIsInstance<StreamInfoItem>()).distinctBy{it.ytId}
+                val thumbnail=info.avatars.maxByOrNull{it.height}?.url.orEmpty()
+                synchronized(playlistSessions){playlistSessions[link.url]=PlaylistSession(info.name,thumbnail,page.nextPage,entries.map{it.ytId}.toMutableSet(),tab)}
+                ResolvedLink.Playlist(link.url,info.name,thumbnail,entries,page.hasNextPage())
             }}}}
             null->throw IllegalArgumentException("UNSUPPORTED_URL")
         }
@@ -91,12 +103,13 @@ import javax.inject.*
     override suspend fun morePlaylist(url:String):ResolvedLink.Playlist=withContext(Dispatchers.IO){
         init()
         val session=synchronized(playlistSessions){playlistSessions[url]} ?: throw IllegalStateException("Playlist expired")
-        if(!Page.isValid(session.page) || session.loaded.size>=200)return@withContext ResolvedLink.Playlist(url,session.title,session.thumbnail,emptyList(),false)
-        val page=extractionAttempt(){runInterruptible{PlaylistInfo.getMoreItems(NewPipe.getService(0),url,session.page)}}
+        val nextPage=session.page
+        if(nextPage==null || !Page.isValid(nextPage))return@withContext ResolvedLink.Playlist(url,session.title,session.thumbnail,emptyList(),false)
+        val page=extractionAttempt(){runInterruptible{if(session.tab!=null)ChannelTabInfo.getMoreItems(NewPipe.getService(0),session.tab,nextPage)else PlaylistInfo.getMoreItems(NewPipe.getService(0),url,nextPage)}}
         synchronized(playlistSessions){
-            val entries=playlistEntries(page.items).filter{it.ytId !in session.loaded}.take(200-session.loaded.size)
+            val entries=playlistEntries(page.items.filterIsInstance<StreamInfoItem>()).distinctBy{it.ytId}.filter{it.ytId !in session.loaded}
             session.loaded.addAll(entries.map{it.ytId});session.page=page.nextPage
-            ResolvedLink.Playlist(url,session.title,session.thumbnail,entries,page.hasNextPage() && session.loaded.size<200)
+            ResolvedLink.Playlist(url,session.title,session.thumbnail,entries,page.hasNextPage())
         }
     }
     private fun extract(id:String):VideoDetails {

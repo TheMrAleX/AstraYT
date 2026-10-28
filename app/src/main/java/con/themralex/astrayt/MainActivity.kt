@@ -48,18 +48,19 @@ import javax.inject.Inject
     private var shared by mutableStateOf("")
     private var requestedScreen by mutableStateOf("")
     private var downloadedId by mutableLongStateOf(-1)
+    private var requestedPlaylistId by mutableLongStateOf(-1)
     private var pip by mutableStateOf(false)
     private var playerVisible=false
     override fun onCreate(savedInstanceState:Bundle?) {
         installSplashScreen();super.onCreate(savedInstanceState);enableEdgeToEdge();receive(intent)
-        setContent {AstraApp(shared,requestedScreen,downloadedId,pip,{shared="";requestedScreen="";downloadedId=-1},{playerVisible=it})}
+        setContent {AstraApp(shared,requestedScreen,downloadedId,requestedPlaylistId,pip,{shared="";requestedScreen="";downloadedId=-1;requestedPlaylistId=-1},{playerVisible=it})}
     }
     override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);receive(intent)}
-    private fun receive(intent:Intent?){if(intent?.action==Intent.ACTION_SEND && intent.type=="text/plain")shared=intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty();requestedScreen=intent?.getStringExtra("screen").orEmpty();downloadedId=intent?.getLongExtra("downloadId",-1) ?: -1}
+    private fun receive(intent:Intent?){if(intent?.action==Intent.ACTION_SEND && intent.type=="text/plain")shared=intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty();requestedScreen=intent?.getStringExtra("screen").orEmpty();downloadedId=intent?.getLongExtra("downloadId",-1) ?: -1;requestedPlaylistId=intent?.getLongExtra("playlistId",-1) ?: -1}
     override fun onUserLeaveHint(){super.onUserLeaveHint();val state=playback.state.value;if(Build.VERSION.SDK_INT<31 && playerVisible && state.playing && state.video?.kind=="VIDEO" && !state.audioOnly)runCatching{enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16,9)).build())}}
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode:Boolean,newConfig:Configuration){super.onPictureInPictureModeChanged(isInPictureInPictureMode,newConfig);pip=isInPictureInPictureMode}
 }
-@Composable private fun AstraApp(shared:String,requestedScreen:String,downloadedId:Long,pip:Boolean,onConsumed:()->Unit,onPlayerVisible:(Boolean)->Unit) {
+@Composable private fun AstraApp(shared:String,requestedScreen:String,downloadedId:Long,requestedPlaylistId:Long,pip:Boolean,onConsumed:()->Unit,onPlayerVisible:(Boolean)->Unit) {
     val main:MainModel=viewModel();val capture:CaptureModel=viewModel();val queue:QueueModel=viewModel();val library:LibraryModel=viewModel();val settings:SettingsModel=viewModel();val extras:VideoExtrasModel=viewModel()
     val prefs by settings.state.collectAsStateWithLifecycle();val all by library.all.collectAsStateWithLifecycle();val playing by main.playback.state.collectAsStateWithLifecycle();val update by settings.update.collectAsStateWithLifecycle()
     val nav=rememberNavController();val entry by nav.currentBackStackEntryAsState();val destination=entry?.destination
@@ -69,7 +70,7 @@ import javax.inject.Inject
     LaunchedEffect(isPlayer){onPlayerVisible(isPlayer)}
     LaunchedEffect(Unit){listOf(main,capture,queue,library,settings,extras).forEach{model->launch{model.effects.receiveAsFlow().collect{toast=it}}}}
     LaunchedEffect(toast){if(toast!=null){delay(3500);toast=null}}
-    LaunchedEffect(shared,requestedScreen,downloadedId,prefs.onboardingDone){if(prefs.onboardingDone){if(shared.isNotBlank()){capture.input(shared,true)}else if(requestedScreen=="queue")nav.navigate(Queue){launchSingleTop=true}else if(requestedScreen=="player" && downloadedId>=0){main.playDownloaded(downloadedId);nav.navigate(PlayerRoute){launchSingleTop=true}};if(shared.isNotBlank() || requestedScreen.isNotBlank())onConsumed()}}
+    LaunchedEffect(shared,requestedScreen,downloadedId,requestedPlaylistId,prefs.onboardingDone){if(prefs.onboardingDone){if(shared.isNotBlank()){capture.input(shared,true)}else if(requestedScreen=="queue"){if(requestedPlaylistId>=0)queue.openCollection(requestedPlaylistId);nav.navigate(Queue){launchSingleTop=true}}else if(requestedScreen=="player" && downloadedId>=0){main.playDownloaded(downloadedId);nav.navigate(PlayerRoute){launchSingleTop=true}};if(shared.isNotBlank() || requestedScreen.isNotBlank())onConsumed()}}
     val motion=rememberMotionOptions(prefs.animationsEnabled)
     val animations=motion.transitions
     AstraTheme(prefs.amoledPureBlack,prefs.accentPreset,animations,motion.ambient,motion.progress) {

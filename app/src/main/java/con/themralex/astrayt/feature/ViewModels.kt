@@ -25,12 +25,13 @@ abstract class ScreenModel:ViewModel() {
     protected val handler=CoroutineExceptionHandler{_,error->effects.trySend(Errors.string(Errors.code(error)))}
     fun work(block:suspend CoroutineScope.()->Unit)=viewModelScope.launch(handler,block=block)
 }
-@Immutable data class CaptureState(val url:String="",val loading:Boolean=false,val result:VideoDetails?=null,val playlist:ResolvedLink.Playlist?=null,val selected:Set<String> = emptySet(),val error:String?=null,val audioOnly:Boolean=false,val trackId:String?=null,val height:Int=1080,val prompt:Boolean=false,val remember:Boolean=false,val busy:Boolean=false,val loadingMore:Boolean=false,val modalOpen:Boolean=false,val trackExplicit:Boolean=false,val subtitleId:String?=null,val rememberSubtitles:Boolean=false,val subtitleExplicit:Boolean=false)
+@Immutable data class CaptureState(val url:String="",val loading:Boolean=false,val result:VideoDetails?=null,val playlist:ResolvedLink.Playlist?=null,val selected:Set<String> = emptySet(),val error:String?=null,val audioOnly:Boolean=false,val trackId:String?=null,val height:Int=1080,val prompt:Boolean=false,val remember:Boolean=false,val busy:Boolean=false,val loadingMore:Boolean=false,val modalOpen:Boolean=false,val trackExplicit:Boolean=false,val subtitleId:String?=null,val rememberSubtitles:Boolean=false,val subtitleExplicit:Boolean=false,val entryHeights:Map<String,Int> = emptyMap(),val grouped:Boolean=true,val collectionName:String="")
 @HiltViewModel class CaptureModel @Inject constructor(private val saved:SavedStateHandle,private val backend:YoutubeBackend,private val prefs:Preferences,private val dao:AstraDao,private val downloads:DownloadManager):ScreenModel() {
     private val _state=MutableStateFlow(CaptureState(url=saved["url"] ?: ""))
     val state=_state.asStateFlow()
     private var fetch:Job?=null
-    init {work{val p=prefs.flow.first();if(_state.value.url.isBlank())_state.value=_state.value.copy(height=p.defaultMaxQuality)};if(_state.value.url.isNotBlank())input(_state.value.url)}
+    private var heightChosen=false
+    init {work{val p=prefs.flow.first();if(!heightChosen)_state.value=_state.value.copy(height=p.defaultMaxQuality)};if(_state.value.url.isNotBlank())input(_state.value.url)}
     fun input(url:String,immediate:Boolean=false,refresh:Boolean=false){if(_state.value.busy)return;val previous=_state.value.takeIf{refresh && UrlParser.parse(it.url)==UrlParser.parse(url)};saved["url"]=url;fetch?.cancel();_state.value=CaptureState(url=url,height=_state.value.height,audioOnly=_state.value.audioOnly,modalOpen=_state.value.modalOpen || (url.isNotBlank() && (immediate || UrlParser.parse(url)!=null)));if(url.isBlank())return
         fetch=work {
             if(!immediate)delay(400)
@@ -44,7 +45,7 @@ abstract class ScreenModel:ViewModel() {
                     val sameChoice=refreshed.track?.id==previous?.trackId
                     val subtitle=SubtitlePolicy.restore(resolved.details.subtitles,p.subtitleLanguage,previous?.subtitleExplicit==true,previous?.subtitleId)
                     _state.value=_state.value.copy(loading=false,result=resolved.details,subtitleId=subtitle?.id,subtitleExplicit=previous?.subtitleExplicit==true,rememberSubtitles=previous?.rememberSubtitles ?: false,trackId=refreshed.track?.id,prompt=refreshed.prompt,trackExplicit=previous?.trackExplicit==true && !unavailable,remember=sameChoice && (previous?.remember ?: false),error=if(unavailable)"AUDIO_UNAVAILABLE"else null)}
-                is ResolvedLink.Playlist->_state.value=_state.value.copy(loading=false,playlist=resolved,selected=resolved.entries.map{it.ytId}.toSet())
+                is ResolvedLink.Playlist->_state.value=_state.value.copy(loading=false,playlist=resolved,collectionName=resolved.title,selected=resolved.entries.map{it.ytId}.toSet())
             }}catch(e:TimeoutCancellationException){_state.value=_state.value.copy(loading=false,error="TIMEOUT")}catch(e:CancellationException){throw e}catch(e:Exception){_state.value=_state.value.copy(loading=false,error=Errors.code(e))}
         }
     }
@@ -54,7 +55,10 @@ abstract class ScreenModel:ViewModel() {
     fun subtitle(id:String?){_state.value=_state.value.copy(subtitleId=id,subtitleExplicit=true)}
     fun rememberSubtitles(value:Boolean){_state.value=_state.value.copy(rememberSubtitles=value)}
     fun kind(audio:Boolean){_state.value=_state.value.copy(audioOnly=audio)}
-    fun height(height:Int){_state.value=_state.value.copy(height=height)}
+    fun height(height:Int){heightChosen=true;_state.value=_state.value.copy(height=height,entryHeights=emptyMap())}
+    fun entryHeight(id:String,height:Int){_state.value=_state.value.copy(entryHeights=_state.value.entryHeights+(id to height))}
+    fun grouped(value:Boolean){_state.value=_state.value.copy(grouped=value)}
+    fun collectionName(value:String){_state.value=_state.value.copy(collectionName=value)}
     fun remember(value:Boolean){_state.value=_state.value.copy(remember=value)}
     fun showTracks(){_state.value=_state.value.copy(prompt=true)}
     fun select(id:String){_state.value=_state.value.copy(selected=if(id in _state.value.selected)_state.value.selected-id else _state.value.selected+id)}
@@ -67,25 +71,21 @@ abstract class ScreenModel:ViewModel() {
         try {
             val next=backend.morePlaylist(playlist.url)
             if(_state.value.playlist?.url!=playlist.url)return@work
-            val selected=if(playlist.entries.all{it.ytId in current.selected})current.selected+next.entries.map{it.ytId}else current.selected
-            _state.value=_state.value.copy(playlist=playlist.copy(entries=(playlist.entries+next.entries).distinctBy{it.ytId}.take(200),hasMore=next.hasMore),selected=selected)
+            val latest=_state.value
+            val selected=if(playlist.entries.all{it.ytId in latest.selected})latest.selected+next.entries.map{it.ytId}else latest.selected
+            _state.value=_state.value.copy(playlist=playlist.copy(entries=(playlist.entries+next.entries).distinctBy{it.ytId},hasMore=next.hasMore),selected=selected)
         }finally{_state.value=_state.value.copy(loadingMore=false)}
     }
     fun enqueue()=work {
-        val state=_state.value;if(state.busy || state.loading || (state.playlist==null && (state.result==null || (state.result.tracks.isNotEmpty() && state.trackId==null))))return@work;_state.value=state.copy(busy=true)
+        val state=_state.value;if(!CapturePolicy.canEnqueue(state))return@work;fetch?.cancel();_state.value=state.copy(busy=true)
         try {
             if(state.playlist!=null){
-                val failed=mutableSetOf<String>()
-                for(entry in state.playlist.entries.filter{it.ytId in state.selected}){
-                    try{downloads.enqueue(entry.ytId,state.height,state.audioOnly,title=entry.title,channel=entry.channel,thumbnail=entry.thumbnail)}
-                    catch(e:CancellationException){throw e}catch(_:Exception){failed.add(entry.ytId)}
-                }
-                if(failed.isNotEmpty()){_state.value=_state.value.copy(selected=failed);effects.send(R.string.batch_partial);return@work}
+                downloads.enqueueCollection(state.playlist,state.playlist.entries.filter{it.ytId in state.selected},state.height,state.entryHeights,state.audioOnly,state.collectionName,state.grouped)
             }
             else {
                 val link=UrlParser.parse(state.url) as? YoutubeLink.Video ?: return@work
                 val d=state.result;val t=d?.tracks?.firstOrNull{it.id==state.trackId}
-                downloads.enqueue(link.id,state.height,state.audioOnly,d,state.trackId,subtitle=d?.subtitles?.firstOrNull{it.id==state.subtitleId},subtitleExplicit=true)
+                downloads.enqueue(link.id,state.height,state.audioOnly,d?.takeIf{it.videos.isNotEmpty() || it.tracks.isNotEmpty()},state.trackId.takeIf{state.trackExplicit},subtitle=d?.subtitles?.firstOrNull{it.id==state.subtitleId}.takeIf{state.subtitleExplicit},subtitleExplicit=state.subtitleExplicit)
                 if(state.rememberSubtitles)prefs.update{it.copy(subtitleLanguage=d?.subtitles?.firstOrNull{it.id==state.subtitleId}?.language)}
                 if(state.remember && t!=null && t.locale.isNotBlank())prefs.update{it.copy(rememberedAudioLanguage=t.locale)}
             }
@@ -95,6 +95,14 @@ abstract class ScreenModel:ViewModel() {
 }
 @HiltViewModel class QueueModel @Inject constructor(dao:AstraDao,val manager:DownloadManager):ScreenModel() {
     val state=dao.downloads().stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
+    val playlists=dao.playlists().stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
+    fun pauseCollection(id:Long)=work{manager.pauseCollection(id)}
+    fun resumeCollection(id:Long)=work{manager.resumeCollection(id)}
+    fun cancelCollection(id:Long)=work{manager.cancelCollection(id)}
+    private val _expanded=MutableStateFlow<Set<Long>>(emptySet())
+    val expanded=_expanded.asStateFlow()
+    fun openCollection(id:Long){_expanded.value=_expanded.value+id}
+    fun toggleCollection(id:Long){_expanded.value=if(id in _expanded.value)_expanded.value-id else _expanded.value+id}
     val progress=manager.progress
     private val _pending=MutableStateFlow(setOf<Long>())
     val pending=_pending.asStateFlow()
@@ -111,6 +119,8 @@ abstract class ScreenModel:ViewModel() {
     fun clear()=work{manager.clearFinished()}
 }
 @HiltViewModel class LibraryModel @Inject constructor(private val dao:AstraDao,private val storage:MediaStorage,private val prefs:Preferences):ScreenModel() {
+    val playlists=dao.playlists().stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
+    val memberships=dao.playlistEntries().stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     private val query=MutableStateFlow("")
     val search=query.asStateFlow()
     val state=query.debounce(150).flatMapLatest{q->val tokens=q.split(Regex("[^\\p{L}\\p{N}]+" )).filter{it.isNotBlank()};if(tokens.isEmpty())dao.videos()else dao.search(tokens.joinToString(" AND "){"\"${it.replace("\"", "")}\"*"})}.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
@@ -119,7 +129,7 @@ abstract class ScreenModel:ViewModel() {
     val recent=prefs.flow.map{it.recentSearches}.stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     val paged=combine(query,filter){query,filter->query to filter}.debounce(150).flatMapLatest{(text,filter)->
         val tokens=text.split(Regex("""[^\p{L}\p{N}]+""")).filter{it.isNotBlank()}
-        val where=mutableListOf<String>();val args=mutableListOf<Any>()
+        val where=mutableListOf<String>("videos.standalone = 1");val args=mutableListOf<Any>()
         val join=if(tokens.isEmpty())""else" JOIN video_fts ON videos.id=video_fts.rowid"
         if(tokens.isNotEmpty()){where.add("video_fts MATCH ?");args.add(tokens.joinToString(" AND "){"\"$it\"*"})}
         filter.kind?.let{where.add("videos.kind = ?");args.add(it)}

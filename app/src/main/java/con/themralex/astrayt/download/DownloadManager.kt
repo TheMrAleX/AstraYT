@@ -3,6 +3,7 @@ import android.content.*
 import android.net.*
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
+import androidx.room.withTransaction
 import con.themralex.astrayt.data.db.*
 import con.themralex.astrayt.data.prefs.*
 import con.themralex.astrayt.youtube.*
@@ -25,7 +26,7 @@ import kotlin.random.Random
 @kotlinx.serialization.Serializable data class DownloadOptions(val details:VideoDetails?=null,val trackId:String?=null,val height:Int=1080,val container:String="",val audioOnly:Boolean=false,val sponsorBlockCategories:Set<String> = emptySet(),val pinnedVideoId:String?=null,val pinnedAudioId:String?=null,val planPinned:Boolean=false,val requestedHeight:Int?=null,val audioLanguage:String?=null,val audioType:String?=null,val audioLabel:String?=null,val requestedAudioLanguage:String?=null,val subtitleId:String?=null,val subtitleLanguage:String?=null)
 data class Progress(val done:Long,val total:Long,val speed:Long,val eta:Long) {val fraction get()=if(total>0)done.toFloat()/total else 0f}
 private class StreamExpired:IOException()
-@Singleton class DownloadManager @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val preferences:Preferences,private val backend:YoutubeBackend,private val client:OkHttpClient,private val storage:MediaStorage,private val subtitles:SubtitleDownloads,private val timelines:con.themralex.astrayt.timeline.TimelineStore) {
+@Singleton class DownloadManager @Inject constructor(@ApplicationContext private val context:Context,private val dao:AstraDao,private val database:AstraDatabase,private val preferences:Preferences,private val backend:YoutubeBackend,private val client:OkHttpClient,private val storage:MediaStorage,private val subtitles:SubtitleDownloads,private val timelines:con.themralex.astrayt.timeline.TimelineStore) {
     private val handler=CoroutineExceptionHandler{_,_->}
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO+handler)
     private val active=ConcurrentHashMap<Long,Job>()
@@ -104,16 +105,29 @@ private class StreamExpired:IOException()
             job.start()
         }
     }
-    suspend fun enqueue(videoId:String,height:Int,audioOnly:Boolean,details:VideoDetails?=null,trackId:String?=null,title:String?=null,channel:String="",thumbnail:String="",subtitle:SubtitleOption?=null,subtitleExplicit:Boolean=false):Long {
+    suspend fun enqueue(videoId:String,height:Int,audioOnly:Boolean,details:VideoDetails?=null,trackId:String?=null,title:String?=null,channel:String="",thumbnail:String="",subtitle:SubtitleOption?=null,subtitleExplicit:Boolean=false,playlistId:Long?=null,start:Boolean=true):Long {
         initialize()
         val prefs=preferences.flow.first()
-        val track=details?.tracks?.firstOrNull{it.id==trackId} ?: details?.let{AudioTrackSelector.select(it.tracks,prefs.preferredAudioLanguage,prefs.rememberedAudioLanguage ?: dao.channelLanguage(it.channelId),prefs.autoPickDubbed,batch=true).track}
-        val chosen=details?.let{StreamPlanner.default(StreamPlanner.options(it,track,audioOnly),height) ?: throw NoStreams()}
+        val track=details?.tracks?.firstOrNull{it.id==trackId} ?: details?.let{AudioTrackSelector.select(it.tracks,prefs.preferredAudioLanguage,prefs.rememberedAudioLanguage ?: dao.channelLanguage(it.channelId) ?: prefs.preferredAudioLanguage,prefs.autoPickDubbed,batch=true).track}
+        val chosen=details?.let{StreamPlanner.default(StreamPlanner.options(it,track,audioOnly),height)}
         val subtitleChoice=if(subtitleExplicit)subtitle else subtitle ?: prefs.subtitleLanguage?.let{SubtitlePolicy.select(details?.subtitles.orEmpty(),it)}
-        val options=DownloadOptions(details,track?.id ?: trackId,chosen?.height ?: height,container=chosen?.container.orEmpty(),audioOnly=audioOnly,sponsorBlockCategories=if(prefs.sponsorBlockEnabled)prefs.sponsorBlockCategories else emptySet(),pinnedVideoId=chosen?.video?.id,pinnedAudioId=chosen?.audio?.id,planPinned=chosen!=null,requestedHeight=height,audioLanguage=track?.locale,audioType=track?.type,audioLabel=track?.displayName,subtitleId=subtitleChoice?.id,subtitleLanguage=subtitleChoice?.language ?: prefs.subtitleLanguage.takeUnless{subtitleExplicit},requestedAudioLanguage=prefs.rememberedAudioLanguage ?: prefs.preferredAudioLanguage.takeIf{prefs.autoPickDubbed || !prefs.askWhenAlternatives})
-        val id=dao.enqueue(DownloadEntity(ytId=videoId,url=UrlParser.canonical(videoId),title=details?.title ?: title ?: context.getString(con.themralex.astrayt.R.string.pending_video),channelName=details?.channelName ?: channel,thumbnailPath=details?.thumbnail ?: thumbnail,kind=if(audioOnly)"AUDIO"else"VIDEO",optionsJson=Json.encodeToString(options)))
-        startService();return id
+        val options=DownloadOptions(details,track?.id ?: trackId,chosen?.height ?: height,container=chosen?.container.orEmpty(),audioOnly=audioOnly,sponsorBlockCategories=if(prefs.sponsorBlockEnabled)prefs.sponsorBlockCategories else emptySet(),pinnedVideoId=chosen?.video?.id,pinnedAudioId=chosen?.audio?.id,planPinned=chosen!=null,requestedHeight=height,audioLanguage=track?.locale,audioType=track?.type,audioLabel=track?.displayName,subtitleId=subtitleChoice?.id,subtitleLanguage=subtitleChoice?.language ?: prefs.subtitleLanguage.takeUnless{subtitleExplicit},requestedAudioLanguage=prefs.rememberedAudioLanguage ?: prefs.preferredAudioLanguage)
+        val id=dao.enqueue(DownloadEntity(ytId=videoId,url=UrlParser.canonical(videoId),title=details?.title ?: title ?: context.getString(con.themralex.astrayt.R.string.pending_video),channelName=details?.channelName ?: channel,thumbnailPath=details?.thumbnail ?: thumbnail,kind=if(audioOnly)"AUDIO"else"VIDEO",optionsJson=Json.encodeToString(options),playlistId=playlistId))
+        if(start)startService();return id
     }
+    suspend fun enqueueCollection(list:ResolvedLink.Playlist,entries:List<PlaylistEntry>,height:Int,heights:Map<String,Int>,audioOnly:Boolean,title:String,grouped:Boolean) {
+        require(entries.isNotEmpty())
+        initialize()
+        database.withTransaction {
+            val group=if(grouped)dao.insertPlaylist(PlaylistEntity(title=title.trim().ifBlank{list.title},sourceUrl=list.url,thumbnail=list.thumbnail))else null
+            if(group!=null)dao.insertMembership(entries.mapIndexed{index,e->PlaylistMembership(group,e.ytId,index)})
+            entries.forEach{e->enqueue(e.ytId,heights[e.ytId] ?: height,audioOnly,title=e.title,channel=e.channel,thumbnail=e.thumbnail,playlistId=group,start=false)}
+        }
+        startService()
+    }
+    suspend fun pauseCollection(id:Long){dao.allDownloads().filter{it.playlistId==id && it.state !in setOf("DONE","CANCELED","FAILED","PAUSED")}.forEach{pause(it.id)}}
+    suspend fun resumeCollection(id:Long){dao.allDownloads().filter{it.playlistId==id && it.state in setOf("FAILED","PAUSED")}.forEach{resume(it.id)}}
+    suspend fun cancelCollection(id:Long){dao.allDownloads().filter{it.playlistId==id && it.state !in setOf("DONE","CANCELED")}.forEach{cancel(it.id)}}
     fun startService(){ContextCompat.startForegroundService(context,Intent(context,DownloadService::class.java))}
     private suspend fun stop(id:Long,state:String){
         val job=scheduler.withLock{
