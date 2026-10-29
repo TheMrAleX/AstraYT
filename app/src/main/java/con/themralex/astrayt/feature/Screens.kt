@@ -47,6 +47,19 @@ import java.util.Locale
 
 fun external(context:Context,url:String){runCatching{context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)))}}
 fun share(context:Context,videos:List<VideoEntity>){context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_TEXT,videos.joinToString("\n"){UrlParser.canonical(it.ytId)})},null))}
+private fun shareDownloaded(context:Context,videos:List<VideoEntity>){
+    if(videos.isEmpty())return
+    val uris=ArrayList(videos.map{Uri.parse(it.contentUri)})
+    val types=videos.map{it.mimeType}.distinct()
+    val mime=types.singleOrNull() ?: types.map{it.substringBefore('/')}.distinct().singleOrNull()?.let{"$it/*"} ?: "*/*"
+    val intent=Intent(if(uris.size==1)Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply{
+        type=mime
+        if(uris.size==1)putExtra(Intent.EXTRA_STREAM,uris.first())else putParcelableArrayListExtra(Intent.EXTRA_STREAM,uris)
+        clipData=ClipData.newUri(context.contentResolver,videos.first().title,uris.first()).apply{uris.drop(1).forEach{addItem(ClipData.Item(it))}}
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent,null))
+}
 fun libraryMeta(context:Context,video:VideoEntity):String=buildList {
     add(video.channelName)
     if(video.viewCount>0)add(context.getString(R.string.views_text,Formatters.views(video.viewCount)))
@@ -286,7 +299,7 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
         Row(Modifier.padding(top=20.dp),verticalAlignment=Alignment.CenterVertically){
             Text(if(selected.isEmpty())stringResource(R.string.library)else selected.size.toString(),color=c.text,style=SingularityTheme.type.headline,modifier=Modifier.weight(1f))
             if(selected.isNotEmpty()){
-                SingularityIcon(Icons.Rounded.Share,stringResource(R.string.share),{share(context,all.filter{it.id in selected})})
+                SingularityIcon(Icons.Rounded.Share,stringResource(R.string.share),{shareDownloaded(context,all.filter{it.id in selected})})
                 SingularityIcon(Icons.Rounded.Delete,stringResource(R.string.delete),{deleting=all.filter{it.id in selected}})
                 SingularityIcon(Icons.Rounded.Close,stringResource(R.string.close),{selected=emptySet()})
             }else{
@@ -315,7 +328,7 @@ fun stateResource(state:String)=when(state){"FETCHING"->R.string.fetching;"DOWNL
         }
     }
     if(sorting)SingularitySheet({sorting=false}){listOf(R.string.recent,R.string.title,R.string.duration,R.string.size,R.string.channel).forEachIndexed{i,id->SingularityButton(stringResource(id),{sort=i;sorting=false},variant=if(i==sort)"primary"else"secondary")}}
-    menu?.let{v->SingularitySheet({menu=null}){SheetHeading(stringResource(R.string.options),{menu=null});Text(v.title,color=c.mid,style=SingularityTheme.type.caption,maxLines=2);listOf(R.string.play,R.string.audio_only,R.string.share,R.string.open_youtube,R.string.channel,R.string.metadata_download,R.string.subtitle_download,R.string.delete).forEach{id->OptionRow(when(id){R.string.play->Icons.Rounded.PlayArrow;R.string.audio_only->Icons.Rounded.Headphones;R.string.share->Icons.Rounded.Share;R.string.open_youtube->Icons.Rounded.OpenInNew;R.string.channel->Icons.Rounded.Person;R.string.metadata_download->Icons.Rounded.Refresh;R.string.subtitle_download->Icons.Rounded.ClosedCaption;else->Icons.Rounded.DeleteOutline},stringResource(id),{when(id){R.string.play,R.string.audio_only->onPlay(v,opened?.let{collectionVideos[it.id].orEmpty()} ?: all,id==R.string.audio_only);R.string.share->share(context,listOf(v));R.string.open_youtube->external(context,UrlParser.canonical(v.ytId));R.string.channel->onChannel(v.channelId);R.string.metadata_download->extras.refreshMetadata(v);R.string.subtitle_download->extras.openSubtitles(v);R.string.delete->deleting=listOf(v)};menu=null})}}}
+    menu?.let{v->SingularitySheet({menu=null}){SheetHeading(stringResource(R.string.options),{menu=null});Text(v.title,color=c.mid,style=SingularityTheme.type.caption,maxLines=2);listOf(R.string.play,R.string.audio_only,R.string.share,R.string.open_youtube,R.string.channel,R.string.metadata_download,R.string.subtitle_download,R.string.delete).forEach{id->OptionRow(when(id){R.string.play->Icons.Rounded.PlayArrow;R.string.audio_only->Icons.Rounded.Headphones;R.string.share->Icons.Rounded.Share;R.string.open_youtube->Icons.Rounded.OpenInNew;R.string.channel->Icons.Rounded.Person;R.string.metadata_download->Icons.Rounded.Refresh;R.string.subtitle_download->Icons.Rounded.ClosedCaption;else->Icons.Rounded.DeleteOutline},stringResource(id),{when(id){R.string.play,R.string.audio_only->onPlay(v,opened?.let{collectionVideos[it.id].orEmpty()} ?: all,id==R.string.audio_only);R.string.share->shareDownloaded(context,listOf(v));R.string.open_youtube->external(context,UrlParser.canonical(v.ytId));R.string.channel->onChannel(v.channelId);R.string.metadata_download->extras.refreshMetadata(v);R.string.subtitle_download->extras.openSubtitles(v);R.string.delete->deleting=listOf(v)};menu=null})}}}
     if(deleting.isNotEmpty())SingularityDialog(stringResource(R.string.delete),stringResource(R.string.delete_question),stringResource(R.string.delete),stringResource(R.string.cancel),{deleting.forEach{model.delete(it)};selected=selected-deleting.map{it.id}.toSet();deleting=emptyList()},{deleting=emptyList()})
 }
 @Composable fun ChannelScreen(id:String,all:List<VideoEntity>,onPlay:(VideoEntity,List<VideoEntity>)->Unit) {
